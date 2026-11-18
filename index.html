@@ -1,0 +1,547 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#142d4e">
+<title>Aikido Training Record</title>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<style>
+:root {
+  --navy: #142d4e;
+  --blue: #284d75;
+  --light: #f1f4f8;
+  --border: #d8dee8;
+  --text: #263445;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--light);
+  color: var(--text);
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+}
+header {
+  background: var(--navy);
+  color: white;
+  padding: 22px 16px;
+  text-align: center;
+}
+header h1 { margin: 0; font-size: 23px; }
+header p { margin: 7px 0 0; font-size: 13px; opacity: .85; }
+main {
+  max-width: 720px;
+  margin: 20px auto;
+  padding: 0 14px 40px;
+}
+.panel {
+  background: white;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 15px;
+  box-shadow: 0 2px 8px #0000000d;
+}
+h2 { font-size: 18px; margin: 0 0 15px; color: var(--navy); }
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+input, select {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  background: white;
+  color: var(--text);
+}
+.field { margin-bottom: 15px; }
+.small { font-size: 13px; color: #667386; }
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.primary { background: var(--navy); color: white; }
+.secondary { background: #e7edf4; color: var(--navy); }
+.danger { background: #f8e8e8; color: #9b2929; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.student {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8ecf1;
+}
+.student:last-child { border-bottom: 0; }
+.student-check { width: 22px; height: 22px; flex-shrink: 0; }
+.student-name { flex: 1; min-width: 0; }
+.student-name strong { display: block; }
+.student-name small { color: #718096; }
+.hours { width: 82px; }
+.status {
+  padding: 11px;
+  border-radius: 6px;
+  margin: 12px 0;
+  background: #edf2f7;
+  white-space: pre-wrap;
+}
+.error { background: #fceaea; color: #8d2222; }
+.success { background: #e6f4e9; color: #216437; }
+.hidden { display: none; }
+.review-row {
+  padding: 9px 0;
+  border-bottom: 1px solid #e8ecf1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+#loginArea { text-align: center; }
+#loginArea p { margin-bottom: 18px; }
+footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
+@media (max-width: 420px) {
+  .panel { padding: 14px; }
+  .hours { width: 72px; }
+  header h1 { font-size: 21px; }
+}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>Aikido Training Record</h1>
+  <p>Training attendance entry</p>
+</header>
+
+<main>
+  <section class="panel" id="loginArea">
+    <h2>Sign in</h2>
+    <p class="small">Please sign in with an approved Google account.</p>
+    <div id="googleButton"></div>
+    <div id="loginStatus" class="status hidden"></div>
+  </section>
+
+  <section id="appArea" class="hidden">
+    <div class="panel">
+      <div class="small" id="signedInAs"></div>
+      <div class="button-row" style="margin-top:10px">
+        <button class="secondary" onclick="signOut()">Sign out</button>
+      </div>
+    </div>
+
+    <section class="panel">
+      <h2>Training Details</h2>
+
+      <div class="field">
+        <label for="trainingDate">Training Date</label>
+        <input type="date" id="trainingDate">
+        <div class="small" id="weekday" style="margin-top:6px"></div>
+      </div>
+
+      <div class="field">
+        <label for="groupSelect">Group</label>
+        <select id="groupSelect">
+          <option value="All Students">All Students</option>
+          <option value="Adult">Adult</option>
+          <option value="Junior">Junior</option>
+          <option value="Little Samurai">Little Samurai</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="attendanceSelect">Attendance Selection</label>
+        <select id="attendanceSelect">
+          <option value="Regular">Regular Students</option>
+          <option value="All">All Students in Group</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="defaultHours">Default Training Hours</label>
+        <input type="number" id="defaultHours" min="0.5" step="0.5" value="1.5">
+        <div class="small" style="margin-top:5px">You can adjust individual training hours below.</div>
+      </div>
+
+      <button class="secondary" onclick="applyDefaultHours()">Apply to all students</button>
+    </section>
+
+    <section class="panel">
+      <h2>Students</h2>
+      <div class="button-row" style="margin-bottom:12px">
+        <button class="secondary" onclick="selectAll()">Select All</button>
+        <button class="secondary" onclick="clearAll()">Clear All</button>
+      </div>
+      <div id="studentList">Loading students...</div>
+      <div id="studentStatus" class="status hidden"></div>
+    </section>
+
+    <section class="panel">
+      <button class="primary" style="width:100%" onclick="showReview()">Review Training Records</button>
+    </section>
+
+    <section class="panel hidden" id="reviewArea">
+      <h2>Review Records</h2>
+      <p id="reviewDate"></p>
+      <p><strong>Total Students: <span id="totalStudents">0</span></strong></p>
+      <div id="reviewList"></div>
+      <div id="duplicateStatus" class="status hidden"></div>
+      <div class="button-row" style="margin-top:15px">
+        <button class="secondary" onclick="backToEntry()">Back to Edit</button>
+        <button class="primary" id="saveButton" onclick="saveRecords()">Save Records</button>
+      </div>
+    </section>
+
+    <div id="saveStatus" class="status hidden"></div>
+  </section>
+</main>
+
+<footer>Aikido Training Record</footer>
+
+<script>
+const API_URL = 'https://aikido-training-api.akiradoura.workers.dev';
+const GOOGLE_CLIENT_ID = '681504302307-iaengs4qptqn51bgvn5ooedmekk0e9h6.apps.googleusercontent.com';
+
+let idToken = '';
+let students = [];
+let duplicateRecords = [];
+let selectedEntries = [];
+
+function localDate() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function showStatus(id, message, type = '') {
+  const el = document.getElementById(id);
+  el.textContent = message;
+  el.className = 'status' + (type ? ' ' + type : '');
+  el.classList.remove('hidden');
+}
+
+function hideStatus(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+function initialiseLogin() {
+  if (!window.google || !google.accounts || !google.accounts.id) {
+    setTimeout(initialiseLogin, 300);
+    return;
+  }
+
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: handleLogin
+  });
+
+  google.accounts.id.renderButton(
+    document.getElementById('googleButton'),
+    { theme: 'outline', size: 'large', text: 'signin_with' }
+  );
+}
+
+async function handleLogin(response) {
+  idToken = response.credential;
+  showStatus('loginStatus', 'Checking your account...');
+
+  try {
+    const result = await apiRequest('/api/students');
+
+    document.getElementById('loginArea').classList.add('hidden');
+    document.getElementById('appArea').classList.remove('hidden');
+    document.getElementById('signedInAs').textContent = 'Signed in successfully';
+
+    students = result;
+    document.getElementById('trainingDate').value = localDate();
+    updateWeekday();
+    renderStudents();
+  } catch (error) {
+    idToken = '';
+    showStatus('loginStatus', error.message, 'error');
+  }
+}
+
+async function apiRequest(path, method = 'GET', data = null) {
+  const options = {
+    method,
+    headers: {
+      'Authorization': 'Bearer ' + idToken
+    }
+  };
+
+  if (data !== null) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(data);
+  }
+
+  const response = await fetch(API_URL + path, options);
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Request failed.');
+  }
+
+  return result;
+}
+
+function signOut() {
+  idToken = '';
+  students = [];
+  document.getElementById('appArea').classList.add('hidden');
+  document.getElementById('loginArea').classList.remove('hidden');
+  hideStatus('loginStatus');
+  document.getElementById('googleButton').innerHTML = '';
+  initialiseLogin();
+}
+
+function updateWeekday() {
+  const value = document.getElementById('trainingDate').value;
+  if (!value) {
+    document.getElementById('weekday').textContent = '';
+    return;
+  }
+
+  const d = new Date(value + 'T12:00:00');
+  document.getElementById('weekday').textContent =
+    d.toLocaleDateString('en-NZ', { weekday: 'long' });
+}
+
+function defaultForGroup() {
+  const group = document.getElementById('groupSelect').value;
+  const hours = group === 'Adult' ? 1.5 : 1;
+  document.getElementById('defaultHours').value = hours;
+}
+
+function renderStudents() {
+  const group = document.getElementById('groupSelect').value;
+  const attendance = document.getElementById('attendanceSelect').value;
+
+  const filtered = students.filter(s =>
+    group === 'All Students' || s.group === group
+  );
+
+  const container = document.getElementById('studentList');
+  container.innerHTML = '';
+
+  if (filtered.length === 0) {
+    container.textContent = 'No students found in this group.';
+    return;
+  }
+
+  filtered.forEach(student => {
+    const isRegular = student.attendance.toLowerCase() === 'regular';
+    const checked = attendance === 'All' || isRegular;
+
+    const row = document.createElement('div');
+    row.className = 'student';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'student-check';
+    checkbox.checked = checked;
+    checkbox.dataset.id = student.id;
+
+    const name = document.createElement('div');
+    name.className = 'student-name';
+
+    const strong = document.createElement('strong');
+    strong.textContent = student.firstName + ' ' + student.surname;
+
+    const small = document.createElement('small');
+    small.textContent = student.grade + ' · ' + student.group;
+
+    name.append(strong, small);
+
+    const hours = document.createElement('input');
+    hours.type = 'number';
+    hours.min = '0.5';
+    hours.step = '0.5';
+    hours.value = document.getElementById('defaultHours').value;
+    hours.className = 'hours';
+    hours.dataset.id = student.id;
+    hours.setAttribute('aria-label', 'Training hours for ' + student.firstName);
+
+    row.append(checkbox, name, hours);
+    container.appendChild(row);
+  });
+
+  hideStatus('studentStatus');
+}
+
+function applyDefaultHours() {
+  const value = Number(document.getElementById('defaultHours').value);
+
+  if (!Number.isFinite(value) || value < 0.5 || value % 0.5 !== 0) {
+    showStatus('studentStatus', 'Enter a valid number of hours in 0.5-hour increments.', 'error');
+    return;
+  }
+
+  document.querySelectorAll('.hours').forEach(input => {
+    input.value = value;
+  });
+
+  hideStatus('studentStatus');
+}
+
+function selectAll() {
+  document.querySelectorAll('.student-check').forEach(input => input.checked = true);
+}
+
+function clearAll() {
+  document.querySelectorAll('.student-check').forEach(input => input.checked = false);
+}
+
+function getSelectedEntries() {
+  const entries = [];
+
+  document.querySelectorAll('.student-check:checked').forEach(check => {
+    const student = students.find(s => String(s.id) === check.dataset.id);
+    const hoursInput = document.querySelector('.hours[data-id="' + check.dataset.id + '"]');
+    const hours = Number(hoursInput.value);
+
+    if (!student || !Number.isFinite(hours) || hours < 0.5 || hours % 0.5 !== 0) {
+      throw new Error('Please check the training hours. Use increments of 0.5 hours.');
+    }
+
+    entries.push({
+      firstName: student.firstName,
+      surname: student.surname,
+      hours
+    });
+  });
+
+  return entries;
+}
+
+async function showReview() {
+  hideStatus('saveStatus');
+  hideStatus('duplicateStatus');
+
+  const date = document.getElementById('trainingDate').value;
+  if (!date) {
+    showStatus('studentStatus', 'Please select a training date.', 'error');
+    return;
+  }
+
+  try {
+    selectedEntries = getSelectedEntries();
+
+    if (selectedEntries.length === 0) {
+      showStatus('studentStatus', 'Please select at least one student.', 'error');
+      return;
+    }
+
+    document.getElementById('reviewDate').textContent =
+      'Training Date: ' + date;
+
+    document.getElementById('totalStudents').textContent =
+      selectedEntries.length;
+
+    const list = document.getElementById('reviewList');
+    list.innerHTML = '';
+
+    selectedEntries.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'review-row';
+
+      const name = document.createElement('span');
+      name.textContent = entry.firstName + ' ' + entry.surname;
+
+      const hours = document.createElement('strong');
+      hours.textContent = entry.hours + ' hours';
+
+      row.append(name, hours);
+      list.appendChild(row);
+    });
+
+    document.getElementById('reviewArea').classList.remove('hidden');
+    document.getElementById('reviewArea').scrollIntoView({ behavior: 'smooth' });
+
+    document.getElementById('saveButton').disabled = true;
+    showStatus('duplicateStatus', 'Checking for duplicate records...');
+
+    const duplicates = await apiRequest('/api/check-duplicates', 'POST', {
+      date,
+      entries: selectedEntries
+    });
+
+    duplicateRecords = duplicates;
+
+    if (duplicates.length > 0) {
+      showStatus(
+        'duplicateStatus',
+        'Warning: Existing records were found for:\n' +
+        duplicates.join('\n') +
+        '\n\nPlease check before saving. You can still save if this is intentional.',
+        'error'
+      );
+    } else {
+      showStatus('duplicateStatus', 'No duplicate records found.', 'success');
+    }
+
+    document.getElementById('saveButton').disabled = false;
+
+  } catch (error) {
+    showStatus('studentStatus', error.message, 'error');
+  }
+}
+
+function backToEntry() {
+  document.getElementById('reviewArea').classList.add('hidden');
+  document.getElementById('studentList').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function saveRecords() {
+  if (duplicateRecords.length > 0) {
+    const proceed = confirm(
+      'Duplicate records have been found. Do you want to save anyway?'
+    );
+    if (!proceed) return;
+  }
+
+  const button = document.getElementById('saveButton');
+  button.disabled = true;
+
+  try {
+    const result = await apiRequest('/api/save-training-batch', 'POST', {
+      date: document.getElementById('trainingDate').value,
+      entries: selectedEntries
+    });
+
+    showStatus('saveStatus', result.message, 'success');
+    button.textContent = 'Saved';
+
+  } catch (error) {
+    showStatus('saveStatus', error.message, 'error');
+    button.disabled = false;
+  }
+}
+
+document.getElementById('groupSelect').addEventListener('change', () => {
+  defaultForGroup();
+  renderStudents();
+});
+
+document.getElementById('attendanceSelect').addEventListener('change', renderStudents);
+document.getElementById('trainingDate').addEventListener('change', updateWeekday);
+
+document.getElementById('defaultHours').addEventListener('change', () => {
+  const value = Number(document.getElementById('defaultHours').value);
+  if (!Number.isFinite(value) || value < 0.5 || value % 0.5 !== 0) {
+    showStatus('studentStatus', 'Use increments of 0.5 hours.', 'error');
+  } else {
+    hideStatus('studentStatus');
+  }
+});
+
+initialiseLogin();
+</script>
+</body>
+</html>
