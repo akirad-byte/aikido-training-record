@@ -139,7 +139,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
 
       <div class="field">
         <label for="trainingDate">Training Date</label>
-        <input type="date" id="trainingDate">
+        <input type="text" id="trainingDate" inputmode="numeric" placeholder="DD/MM/YYYY" autocomplete="off">
         <div class="small" id="weekday" style="margin-top:6px"></div>
       </div>
 
@@ -219,6 +219,79 @@ function localDate() {
   return `${year}-${month}-${day}`;
 }
 
+function parseTrainingDate(value) {
+  const text = String(value || '').trim();
+  let year, month, day;
+
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const localMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+
+  if (isoMatch) {
+    year = Number(isoMatch[1]);
+    month = Number(isoMatch[2]);
+    day = Number(isoMatch[3]);
+  } else if (localMatch) {
+    day = Number(localMatch[1]);
+    month = Number(localMatch[2]);
+    year = Number(localMatch[3]);
+
+    if (localMatch[3].length === 2) {
+      year += year <= 49 ? 2000 : 1900;
+    }
+  } else {
+    throw new Error('Enter the date as DD/MM/YYYY, for example 12/06/2024.');
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error('Please enter a valid calendar date.');
+  }
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function formatTrainingDate(isoDate, includeWeekday = false) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  const formatted = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+  return includeWeekday
+    ? `${date.toLocaleDateString('en-NZ', { weekday: 'long' })}, ${formatted}`
+    : formatted;
+}
+
+function normaliseTrainingDate() {
+  const input = document.getElementById('trainingDate');
+  if (!input.value.trim()) return;
+
+  try {
+    const isoDate = parseTrainingDate(input.value);
+    input.value = formatTrainingDate(isoDate);
+    updateWeekday();
+  } catch (error) {
+    showStatus('studentStatus', error.message, 'error');
+  }
+}
+
+function getDateWarning(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const selected = Date.UTC(year, month - 1, day);
+  const [todayYear, todayMonth, todayDay] = localDate().split('-').map(Number);
+  const today = Date.UTC(todayYear, todayMonth - 1, todayDay);
+  const difference = Math.round((selected - today) / 86400000);
+
+  if (difference < -30) {
+    return 'This training date is more than 30 days in the past. Please check the date before continuing.';
+  }
+  if (difference > 1) {
+    return 'This training date is more than one day in the future. Please check the date before continuing.';
+  }
+  return '';
+}
+
 function showStatus(id, message, type = '') {
   const el = document.getElementById(id);
   el.textContent = message;
@@ -259,7 +332,7 @@ async function handleLogin(response) {
     document.getElementById('signedInAs').textContent = 'Signed in successfully';
 
     students = result;
-    document.getElementById('trainingDate').value = localDate();
+    document.getElementById('trainingDate').value = formatTrainingDate(localDate());
     updateWeekday();
     renderStudents();
   } catch (error) {
@@ -303,14 +376,21 @@ function signOut() {
 
 function updateWeekday() {
   const value = document.getElementById('trainingDate').value;
-  if (!value) {
+  if (!value.trim()) {
     document.getElementById('weekday').textContent = '';
     return;
   }
 
-  const d = new Date(value + 'T12:00:00');
-  document.getElementById('weekday').textContent =
-    d.toLocaleDateString('en-NZ', { weekday: 'long' });
+  try {
+    const isoDate = parseTrainingDate(value);
+    const [year, month, day] = isoDate.split('-').map(Number);
+    const d = new Date(year, month - 1, day, 12);
+    document.getElementById('weekday').textContent =
+      d.toLocaleDateString('en-NZ', { weekday: 'long' });
+    hideStatus('studentStatus');
+  } catch (error) {
+    document.getElementById('weekday').textContent = '';
+  }
 }
 
 function defaultForGroup() {
@@ -424,9 +504,16 @@ async function showReview() {
   hideStatus('saveStatus');
   hideStatus('duplicateStatus');
 
-  const date = document.getElementById('trainingDate').value;
-  if (!date) {
-    showStatus('studentStatus', 'Please select a training date.', 'error');
+  let date;
+  try {
+    date = parseTrainingDate(document.getElementById('trainingDate').value);
+  } catch (error) {
+    showStatus('studentStatus', error.message, 'error');
+    return;
+  }
+
+  const dateWarning = getDateWarning(date);
+  if (dateWarning && !confirm(dateWarning + '\n\nDo you want to continue?')) {
     return;
   }
 
@@ -439,7 +526,7 @@ async function showReview() {
     }
 
     document.getElementById('reviewDate').textContent =
-      'Training Date: ' + date;
+      'Training Date: ' + formatTrainingDate(date, true);
 
     document.getElementById('totalStudents').textContent =
       selectedEntries.length;
@@ -510,8 +597,9 @@ async function saveRecords() {
   button.disabled = true;
 
   try {
+    const trainingDate = parseTrainingDate(document.getElementById('trainingDate').value);
     const result = await apiRequest('/api/save-training-batch', 'POST', {
-      date: document.getElementById('trainingDate').value,
+      date: trainingDate,
       entries: selectedEntries
     });
 
@@ -531,6 +619,7 @@ document.getElementById('groupSelect').addEventListener('change', () => {
 
 document.getElementById('attendanceSelect').addEventListener('change', renderStudents);
 document.getElementById('trainingDate').addEventListener('change', updateWeekday);
+document.getElementById('trainingDate').addEventListener('blur', normaliseTrainingDate);
 
 document.getElementById('defaultHours').addEventListener('change', () => {
   const value = Number(document.getElementById('defaultHours').value);
