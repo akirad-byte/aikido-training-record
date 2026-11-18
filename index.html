@@ -139,7 +139,9 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
 
       <div class="field">
         <label for="trainingDate">Training Date</label>
-        <input type="text" id="trainingDate" inputmode="numeric" placeholder="DD/MM/YYYY" autocomplete="off">
+        <input type="date" id="trainingDate">
+        <div class="small" style="margin-top:8px">Or enter a date manually</div>
+        <input type="text" id="trainingDateManual" inputmode="numeric" placeholder="D/M/YY or DD/MM/YYYY" autocomplete="off" style="margin-top:5px">
         <div class="small" id="weekday" style="margin-top:6px"></div>
       </div>
 
@@ -263,8 +265,13 @@ function formatTrainingDate(isoDate, includeWeekday = false) {
     : formatted;
 }
 
+function getTrainingDateValue() {
+  const manual = document.getElementById('trainingDateManual').value.trim();
+  return manual || document.getElementById('trainingDate').value;
+}
+
 function normaliseTrainingDate() {
-  const input = document.getElementById('trainingDate');
+  const input = document.getElementById('trainingDateManual');
   if (!input.value.trim()) return;
 
   try {
@@ -332,7 +339,8 @@ async function handleLogin(response) {
     document.getElementById('signedInAs').textContent = 'Signed in successfully';
 
     students = result;
-    document.getElementById('trainingDate').value = formatTrainingDate(localDate());
+    document.getElementById('trainingDate').value = localDate();
+    document.getElementById('trainingDateManual').value = '';
     updateWeekday();
     renderStudents();
   } catch (error) {
@@ -375,7 +383,7 @@ function signOut() {
 }
 
 function updateWeekday() {
-  const value = document.getElementById('trainingDate').value;
+  const value = getTrainingDateValue();
   if (!value.trim()) {
     document.getElementById('weekday').textContent = '';
     return;
@@ -506,7 +514,7 @@ async function showReview() {
 
   let date;
   try {
-    date = parseTrainingDate(document.getElementById('trainingDate').value);
+    date = parseTrainingDate(getTrainingDateValue());
   } catch (error) {
     showStatus('studentStatus', error.message, 'error');
     return;
@@ -597,7 +605,7 @@ async function saveRecords() {
   button.disabled = true;
 
   try {
-    const trainingDate = parseTrainingDate(document.getElementById('trainingDate').value);
+    const trainingDate = parseTrainingDate(getTrainingDateValue());
     const result = await apiRequest('/api/save-training-batch', 'POST', {
       date: trainingDate,
       entries: selectedEntries
@@ -618,8 +626,12 @@ document.getElementById('groupSelect').addEventListener('change', () => {
 });
 
 document.getElementById('attendanceSelect').addEventListener('change', renderStudents);
-document.getElementById('trainingDate').addEventListener('change', updateWeekday);
-document.getElementById('trainingDate').addEventListener('blur', normaliseTrainingDate);
+document.getElementById('trainingDate').addEventListener('change', () => {
+  document.getElementById('trainingDateManual').value = '';
+  updateWeekday();
+});
+document.getElementById('trainingDateManual').addEventListener('input', updateWeekday);
+document.getElementById('trainingDateManual').addEventListener('blur', normaliseTrainingDate);
 
 document.getElementById('defaultHours').addEventListener('change', () => {
   const value = Number(document.getElementById('defaultHours').value);
