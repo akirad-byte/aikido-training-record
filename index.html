@@ -100,6 +100,25 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   justify-content: space-between;
   gap: 12px;
 }
+.grade-badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 6px;
+  border: 1px solid transparent;
+}
+.g-dan { background: #3d3d3d; color: #fff; }
+.g-brown { background: #753800; color: #fff; }
+.g-blue { background: #0a53a8; color: #fff; }
+.g-green { background: #11734b; color: #fff; }
+.g-red { background: #b10202; color: #fff; }
+.g-orange { background: #ff4e00; color: #fff; }
+.g-purple { background: #5a3286; color: #fff; }
+.g-yellow { background: #ffe5a0; color: #5a4300; }
+.g-gray { background: #d9d9d9; color: #444; }
+.g-plain { background: #fff; color: #333; border-color: #c9d1dc; }
 .add-member-box {
   margin-top: 14px;
   padding: 16px;
@@ -451,12 +470,100 @@ function defaultForGroup() {
   document.getElementById('defaultHours').value = hours;
 }
 
+// Rank a grade so that higher grades sort first.
+// Dan > Kyu (1 Kyu highest) > "Semi" grades (just below the matching Kyu) > NO Grade > blank
+function parseGrade(grade) {
+  const g = String(grade || '').trim();
+  if (!g) return { rank: -1, kind: 'blank' };
+  if (/^no grade/i.test(g)) return { rank: 0, kind: 'nograde' };
+  if (/^shodan$/i.test(g)) return { rank: 201, kind: 'dan', n: 1 };
+
+  const dan = g.match(/^(\d+)\s*(?:st|nd|rd|th)?\s*dan$/i);
+  if (dan) return { rank: 200 + Number(dan[1]), kind: 'dan', n: Number(dan[1]) };
+
+  const kyu = g.match(/^(semi\s*)?(\d+)\s*kyu$/i);
+  if (kyu) {
+    const n = Number(kyu[2]);
+    const semi = !!kyu[1];
+    return { rank: 100 - n - (semi ? 0.5 : 0), kind: 'kyu', n, semi };
+  }
+
+  return { rank: 1, kind: 'other' };
+}
+
+function gradeColorClass(grade) {
+  const info = parseGrade(grade);
+  const g = String(grade || '').trim().toLowerCase();
+
+  if (info.kind === 'dan') return 'g-dan';
+
+  if (info.kind === 'nograde') {
+    if (g.includes('little samurai')) return 'g-gray';
+    if (g.includes('junior')) return 'g-yellow';
+    return 'g-plain';
+  }
+
+  if (info.kind === 'kyu') {
+    const n = info.n;
+    if (n >= 11) return 'g-gray';
+    if (n === 10) return 'g-yellow';
+    if (n === 9) return 'g-orange';
+    if (n === 8) return 'g-red';
+    if (n === 7) return 'g-green';
+    if (n === 6) return 'g-blue';
+    if (n === 5) return info.semi ? 'g-purple' : 'g-plain';
+    if (n >= 1 && n <= 3) return 'g-brown';
+  }
+
+  return 'g-plain';
+}
+
+// Grade order, lowest to highest (same order as the Sheet2 grade list)
+const GRADE_ORDER = [
+  'NO Grade Little Samurai',
+  'Semi 13 Kyu', '13 Kyu',
+  'Semi 12 Kyu', '12 Kyu',
+  'Semi 11 Kyu', '11 Kyu',
+  'Semi 10 Kyu', '10 Kyu',
+  'NO Grade Junior',
+  'Semi 9 Kyu', '9 Kyu',
+  'Semi 8 Kyu', '8 Kyu',
+  'Semi 7 Kyu', '7 Kyu',
+  'Semi 6 Kyu', '6 Kyu',
+  'Semi 5 Kyu',
+  'NO Grade Adult',
+  '5 Kyu', '4 Kyu', '3 Kyu', '2 Kyu', '1 Kyu',
+  'Shodan',
+  '2 Dan', '3 Dan', '4 Dan', '5 Dan', '6 Dan', '7 Dan'
+];
+
+function normaliseGrade(grade) {
+  return String(grade || '').toLowerCase().replace(/\s+/g, '');
+}
+
+const GRADE_RANK = {};
+GRADE_ORDER.forEach((g, index) => { GRADE_RANK[normaliseGrade(g)] = index + 1; });
+
+function gradeRank(grade) {
+  if (!String(grade || '').trim()) return -1;      // blank: always last
+  const rank = GRADE_RANK[normaliseGrade(grade)];
+  return rank === undefined ? 0 : rank;            // unknown grade: just above blank
+}
+
+function compareMembers(a, b) {
+  const diff = gradeRank(b.grade) - gradeRank(a.grade);
+  if (diff !== 0) return diff;
+
+  return (a.firstName + ' ' + a.surname)
+    .localeCompare(b.firstName + ' ' + b.surname, 'en', { sensitivity: 'base' });
+}
+
 function renderStudents() {
   const group = document.getElementById('groupSelect').value;
 
-  const filtered = students.filter(s =>
-    group === 'All Students' || s.group === group
-  );
+  const filtered = students
+    .filter(s => group === 'All Students' || s.group === group)
+    .sort(compareMembers);
 
   const container = document.getElementById('studentList');
   container.innerHTML = '';
@@ -487,7 +594,10 @@ function renderStudents() {
     strong.textContent = student.firstName + ' ' + student.surname;
 
     const small = document.createElement('small');
-    small.textContent = student.grade + ' · ' + student.group;
+    const badge = document.createElement('span');
+    badge.className = 'grade-badge ' + gradeColorClass(student.grade);
+    badge.textContent = student.grade || 'No grade';
+    small.append(badge, student.group);
 
     name.append(strong, small);
 
