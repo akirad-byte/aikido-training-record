@@ -209,9 +209,9 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
 
         <div class="field">
           <label for="newGrade">Grade</label>
-          <input type="text" id="newGrade" maxlength="60" autocomplete="off">
+          <select id="newGrade"></select>
           <div class="small" style="margin-top:5px">
-            Filled in automatically from the group. Change it if the member already has a grade from another dojo.
+            Set automatically from the group. Choose another grade if the member already has one from another dojo, or leave it blank.
           </div>
         </div>
 
@@ -272,6 +272,7 @@ let students = [];
 let duplicateRecords = [];
 let selectedEntries = [];
 let gradeEdited = false;
+let gradeOptions = [];
 
 function localDate() {
   const d = new Date();
@@ -389,6 +390,7 @@ async function handleLogin(response) {
     document.getElementById('signedInAs').textContent = 'Signed in successfully';
 
     students = result;
+    loadGrades();
     document.getElementById('trainingDate').value = localDate();
     updateWeekday();
     renderStudents();
@@ -537,10 +539,45 @@ function clearAll() {
 
 // ---------- Add Member ----------
 
+function populateGradeSelect(selectedValue) {
+  const select = document.getElementById('newGrade');
+  const options = gradeOptions.slice();
+
+  // Make sure the default grade for the group is always available
+  Object.values(DEFAULT_GRADES).forEach(g => {
+    if (!options.includes(g)) options.push(g);
+  });
+
+  select.innerHTML = '';
+
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '(blank)';
+  select.appendChild(blank);
+
+  options.forEach(g => {
+    const option = document.createElement('option');
+    option.value = g;
+    option.textContent = g;
+    select.appendChild(option);
+  });
+
+  select.value = selectedValue;
+}
+
 function setDefaultGrade() {
   const group = document.getElementById('newGroup').value;
-  document.getElementById('newGrade').value = DEFAULT_GRADES[group] || '';
+  populateGradeSelect(DEFAULT_GRADES[group] || '');
   gradeEdited = false;
+}
+
+async function loadGrades() {
+  try {
+    gradeOptions = await apiRequest('/api/grades');
+  } catch (error) {
+    gradeOptions = [];
+  }
+  setDefaultGrade();
 }
 
 function toggleAddMember() {
@@ -553,7 +590,6 @@ function toggleAddMember() {
 
   if (opening) {
     hideStatus('addMemberStatus');
-    if (!document.getElementById('newGrade').value) setDefaultGrade();
     document.getElementById('newFirstName').focus();
   }
 }
@@ -748,7 +784,7 @@ document.getElementById('newGroup').addEventListener('change', () => {
   if (!gradeEdited) setDefaultGrade();
 });
 
-document.getElementById('newGrade').addEventListener('input', () => {
+document.getElementById('newGrade').addEventListener('change', () => {
   gradeEdited = true;
 });
 
