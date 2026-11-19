@@ -119,6 +119,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .g-yellow { background: #ffe5a0; color: #5a4300; }
 .g-gray { background: #d9d9d9; color: #444; }
 .g-plain { background: #fff; color: #333; border-color: #c9d1dc; }
+.grp-adult { background: #b10202; color: #fff; }
+.grp-junior { background: #0a53a8; color: #fff; }
+.grp-little { background: #11734b; color: #fff; }
+.grp-other { background: #fff; color: #333; border-color: #c9d1dc; }
 .add-member-box {
   margin-top: 14px;
   padding: 16px;
@@ -597,7 +601,15 @@ function renderStudents() {
     const badge = document.createElement('span');
     badge.className = 'grade-badge ' + gradeColorClass(student.grade);
     badge.textContent = student.grade || 'No grade';
-    small.append(badge, student.group);
+    const groupBadge = document.createElement('span');
+    const groupKey = student.group.toLowerCase();
+    groupBadge.className = 'grade-badge ' + (
+      groupKey === 'adult' ? 'grp-adult' :
+      groupKey === 'junior' ? 'grp-junior' :
+      groupKey === 'little samurai' ? 'grp-little' : 'grp-other'
+    );
+    groupBadge.textContent = student.group || 'No group';
+    small.append(badge, groupBadge);
 
     name.append(strong, small);
 
