@@ -46,7 +46,7 @@ main {
 }
 h2 { font-size: 18px; margin: 0 0 15px; color: var(--navy); }
 label { display: block; font-weight: 600; margin-bottom: 6px; }
-input, select {
+input, select, textarea {
   width: 100%;
   padding: 11px;
   border: 1px solid var(--border);
@@ -56,6 +56,7 @@ input, select {
   color: var(--text);
 }
 .field { margin-bottom: 15px; }
+textarea { font-family: inherit; resize: vertical; }
 .small { font-size: 13px; color: #667386; }
 button {
   border: 0;
@@ -218,6 +219,11 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
 
       <div class="field">
+        <label for="sessionNotes">Notes (optional)</label>
+        <textarea id="sessionNotes" rows="2" maxlength="500" placeholder="e.g. Weapons class, guest instructor"></textarea>
+      </div>
+
+      <div class="field">
         <label for="groupSelect">Group</label>
         <select id="groupSelect">
           <option value="All Students">All Members</option>
@@ -304,6 +310,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <h2>Review Records</h2>
       <p id="reviewDate"></p>
       <p id="reviewRecorder"></p>
+      <p id="reviewNotes" class="hidden"></p>
       <p><strong>Total Members: <span id="totalStudents">0</span></strong></p>
       <div id="reviewList"></div>
       <div id="duplicateStatus" class="status hidden"></div>
@@ -341,6 +348,7 @@ let students = [];
 let duplicateRecords = [];
 let selectedEntries = [];
 let selectedRecorder = '';
+let selectedNotes = '';
 let gradeEdited = false;
 let gradeOptions = [];
 
@@ -496,6 +504,7 @@ async function apiRequest(path, method = 'GET', data = null) {
 
 function signOut() {
   idToken = '';
+  document.getElementById('recordedBy').value = '';
   students = [];
   document.getElementById('appArea').classList.add('hidden');
   document.getElementById('loginArea').classList.remove('hidden');
@@ -802,10 +811,6 @@ function renderProfile(p) {
     'Total training hours',
     p.totalHours === '' ? '' : p.totalHours
   ));
-  if (p.totalHours !== '') {
-    body.appendChild(profileRow('  This spreadsheet', p.hoursThisSpreadsheet));
-    body.appendChild(profileRow('  Outside this spreadsheet', p.hoursOutside));
-  }
 
   const next = document.createElement('div');
   next.className = 'profile-section';
@@ -837,7 +842,9 @@ function renderProfile(p) {
       const line = document.createElement('div');
       line.className = 'recent-row';
       line.textContent =
-        r.date + ' · ' + r.hours + ' h' + (r.recordedBy ? ' · ' + r.recordedBy : '');
+        r.date + ' · ' + r.hours + ' h' +
+        (r.recordedBy ? ' · ' + r.recordedBy : '') +
+        (r.note ? ' · ' + r.note : '');
       body.appendChild(line);
     });
 
@@ -857,11 +864,8 @@ function isBlackBelt(grade) {
 function populateRecorders() {
   const select = document.getElementById('recordedBy');
 
-  let saved = '';
-  try { saved = localStorage.getItem('aikidoRecorder') || ''; } catch (e) {}
-
-  const current = select.value || saved;
-  const blackBelts = students.filter(s => isBlackBelt(s.grade)).sort(compareMembers);
+  const current = select.value;
+  const blackBelts = students.filter(s => isBlackBelt(s.grade)).sort(compareMembers); // highest grade first
 
   select.innerHTML = '';
 
@@ -1038,6 +1042,7 @@ async function showReview() {
     return;
   }
   selectedRecorder = recorder;
+  selectedNotes = document.getElementById('sessionNotes').value.replace(/\s+/g, ' ').trim();
 
   const dateWarning = getDateWarning(date);
   if (dateWarning && !confirm(dateWarning + '\n\nDo you want to continue?')) {
@@ -1057,6 +1062,10 @@ async function showReview() {
 
     document.getElementById('reviewRecorder').textContent =
       'Recorded by: ' + selectedRecorder;
+
+    const reviewNotes = document.getElementById('reviewNotes');
+    reviewNotes.textContent = 'Notes: ' + selectedNotes;
+    reviewNotes.classList.toggle('hidden', !selectedNotes);
 
     document.getElementById('totalStudents').textContent =
       selectedEntries.length;
@@ -1132,7 +1141,8 @@ async function saveRecords() {
     const result = await apiRequest('/api/save-training-batch', 'POST', {
       date: trainingDate,
       entries: selectedEntries,
-      recordedBy: selectedRecorder
+      recordedBy: selectedRecorder,
+      notes: selectedNotes
     });
 
     showStatus('saveStatus', result.message, 'success');
@@ -1164,12 +1174,6 @@ document.getElementById('defaultHours').addEventListener('change', () => {
   } else {
     hideStatus('studentStatus');
   }
-});
-
-document.getElementById('recordedBy').addEventListener('change', () => {
-  try {
-    localStorage.setItem('aikidoRecorder', document.getElementById('recordedBy').value);
-  } catch (e) {}
 });
 
 document.addEventListener('keydown', e => {
