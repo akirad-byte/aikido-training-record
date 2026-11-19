@@ -123,6 +123,41 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .grp-junior { background: #0a53a8; color: #fff; }
 .grp-little { background: #11734b; color: #fff; }
 .grp-other { background: #fff; color: #333; border-color: #c9d1dc; }
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #0009;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 14px;
+  overflow-y: auto;
+  z-index: 50;
+}
+.profile-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 8px 30px #0003;
+}
+.profile-card h2 { margin-bottom: 8px; font-size: 20px; }
+.profile-badges { margin-bottom: 12px; }
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e8ecf1;
+}
+.profile-row > span { color: #667386; flex-shrink: 0; }
+.profile-row > strong { text-align: right; }
+.profile-row .met { color: #216437; }
+.profile-row .pending { color: #8a5a00; }
+.profile-section { margin: 16px 0 4px; font-weight: 700; color: var(--navy); }
+.recent-row { padding: 7px 0; border-bottom: 1px solid #e8ecf1; font-size: 14px; }
+.student-name.clickable { cursor: pointer; }
 .add-member-box {
   margin-top: 14px;
   padding: 16px;
@@ -202,6 +237,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
 
     <section class="panel">
       <h2>Members</h2>
+      <div class="small" style="margin:-8px 0 12px">Tap a member's name to see their profile.</div>
       <div class="button-row" style="margin-bottom:12px">
         <button class="secondary" onclick="selectRegular()">Regular</button>
         <button class="secondary" onclick="selectAll()">Select All</button>
@@ -279,6 +315,13 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <div id="saveStatus" class="status hidden"></div>
   </section>
 </main>
+
+<div id="profileOverlay" class="overlay hidden" onclick="if (event.target === this) closeProfile()">
+  <div class="profile-card">
+    <div id="profileBody">Loading profile...</div>
+    <button class="secondary" style="width:100%;margin-top:16px" onclick="closeProfile()">Close</button>
+  </div>
+</div>
 
 <footer>Aikido Training Record</footer>
 
@@ -622,6 +665,16 @@ function renderStudents() {
     small.append(badge, groupBadge);
 
     name.append(strong, small);
+    name.classList.add('clickable');
+    name.setAttribute('role', 'button');
+    name.setAttribute('tabindex', '0');
+    name.addEventListener('click', () => openProfile(student.id));
+    name.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openProfile(student.id);
+      }
+    });
 
     const hours = document.createElement('input');
     hours.type = 'number';
@@ -652,6 +705,147 @@ function applyDefaultHours() {
   });
 
   hideStatus('studentStatus');
+}
+
+// ---------- Member Profile ----------
+
+function profileRow(label, value, className = '') {
+  const row = document.createElement('div');
+  row.className = 'profile-row';
+
+  const left = document.createElement('span');
+  left.textContent = label;
+
+  const right = document.createElement('strong');
+  right.textContent = value === '' || value === undefined || value === null ? '—' : value;
+  if (className) right.className = className;
+
+  row.append(left, right);
+  return row;
+}
+
+function describeRequirement(value, required, unit) {
+  const v = String(value || '').trim();
+  let text = '—';
+  let state = '';
+
+  if (v.includes('✓')) {
+    text = '✓ Met';
+    state = 'met';
+  } else {
+    const m = v.match(/^\(\s*(\d+(?:\.\d+)?)\s*\)$/);
+    if (m) {
+      text = m[1] + (unit ? ' ' + unit : '') + ' to go';
+      state = 'pending';
+    } else if (v) {
+      text = v;
+    }
+  }
+
+  if (required) text += ' (required: ' + required + ')';
+  return { text, state };
+}
+
+function closeProfile() {
+  document.getElementById('profileOverlay').classList.add('hidden');
+}
+
+async function openProfile(id) {
+  const body = document.getElementById('profileBody');
+  body.textContent = 'Loading profile...';
+  document.getElementById('profileOverlay').classList.remove('hidden');
+
+  try {
+    const profile = await apiRequest('/api/member-profile?id=' + encodeURIComponent(id));
+    renderProfile(profile);
+  } catch (error) {
+    body.textContent = error.message;
+  }
+}
+
+function renderProfile(p) {
+  const body = document.getElementById('profileBody');
+  body.innerHTML = '';
+
+  const title = document.createElement('h2');
+  title.textContent = p.firstName + ' ' + p.surname;
+  body.appendChild(title);
+
+  const badges = document.createElement('div');
+  badges.className = 'profile-badges';
+
+  const gradeBadge = document.createElement('span');
+  gradeBadge.className = 'grade-badge ' + gradeColorClass(p.grade);
+  gradeBadge.textContent = p.grade || 'No grade';
+
+  const groupKey = (p.group || '').toLowerCase();
+  const groupBadge = document.createElement('span');
+  groupBadge.className = 'grade-badge ' + (
+    groupKey === 'adult' ? 'grp-adult' :
+    groupKey === 'junior' ? 'grp-junior' :
+    groupKey === 'little samurai' ? 'grp-little' : 'grp-other'
+  );
+  groupBadge.textContent = p.group || 'No group';
+
+  badges.append(gradeBadge, groupBadge);
+  body.appendChild(badges);
+
+  body.appendChild(profileRow('Attendance type', p.attendance || 'Casual'));
+  body.appendChild(profileRow('Last grading date', p.lastGrading));
+  body.appendChild(profileRow(
+    'Days since last grading',
+    p.daysSinceGrading === '' ? '' : p.daysSinceGrading + ' days'
+  ));
+
+  body.appendChild(profileRow(
+    'Total training hours',
+    p.totalHours === '' ? '' : p.totalHours
+  ));
+  if (p.totalHours !== '') {
+    body.appendChild(profileRow('  This spreadsheet', p.hoursThisSpreadsheet));
+    body.appendChild(profileRow('  Outside this spreadsheet', p.hoursOutside));
+  }
+
+  const next = document.createElement('div');
+  next.className = 'profile-section';
+  next.textContent = 'Next grading';
+  body.appendChild(next);
+
+  body.appendChild(profileRow('Next grade', p.nextGrade));
+
+  const training = describeRequirement(p.trainingRequirement, p.requiredTraining, '');
+  body.appendChild(profileRow('Training requirement', training.text, training.state));
+
+  const days = describeRequirement(p.daysRequirement, p.requiredDays, 'days');
+  body.appendChild(profileRow('Time since last grading', days.text, days.state));
+
+  if (p.notes) body.appendChild(profileRow('Notes', p.notes));
+
+  const recent = document.createElement('div');
+  recent.className = 'profile-section';
+  recent.textContent = 'Recent sessions (recorded in this app)';
+  body.appendChild(recent);
+
+  if (!p.recent || p.recent.length === 0) {
+    const none = document.createElement('div');
+    none.className = 'small';
+    none.textContent = 'No sessions recorded yet.';
+    body.appendChild(none);
+  } else {
+    p.recent.forEach(r => {
+      const line = document.createElement('div');
+      line.className = 'recent-row';
+      line.textContent =
+        r.date + ' · ' + r.hours + ' h' + (r.recordedBy ? ' · ' + r.recordedBy : '');
+      body.appendChild(line);
+    });
+
+    const total = document.createElement('div');
+    total.className = 'small';
+    total.style.marginTop = '8px';
+    total.textContent = 'Total sessions recorded: ' + p.sessionCount;
+    body.appendChild(total);
+  }
 }
 
 function isBlackBelt(grade) {
@@ -975,6 +1169,10 @@ document.getElementById('recordedBy').addEventListener('change', () => {
   try {
     localStorage.setItem('aikidoRecorder', document.getElementById('recordedBy').value);
   } catch (e) {}
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeProfile();
 });
 
 setDefaultGrade();
