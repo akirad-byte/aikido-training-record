@@ -780,9 +780,7 @@ document.getElementById('attendanceSelect').addEventListener('change', renderStu
 
 document.getElementById('trainingDate').addEventListener('change', updateWeekday);
 
-document.getElementById('newGroup').addEventListener('change', () => {
-  if (!gradeEdited) setDefaultGrade();
-});
+document.getElementById('newGroup').addEventListener('change', setDefaultGrade);
 
 document.getElementById('newGrade').addEventListener('change', () => {
   gradeEdited = true;
