@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,6 +100,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   justify-content: space-between;
   gap: 12px;
 }
+.add-member-box {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.add-member-box h3 { margin: 0 0 14px; font-size: 16px; color: var(--navy); }
 #loginArea { text-align: center; }
 #loginArea p { margin-bottom: 18px; }
 footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
@@ -137,16 +144,16 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <section class="panel">
       <h2>Training Details</h2>
 
-     <div class="field">
-  <label for="trainingDate">Training Date</label>
-  <input type="date" id="trainingDate">
-  <div class="small" id="weekday" style="margin-top:6px"></div>
-</div>
+      <div class="field">
+        <label for="trainingDate">Training Date</label>
+        <input type="date" id="trainingDate">
+        <div class="small" id="weekday" style="margin-top:6px"></div>
+      </div>
 
       <div class="field">
         <label for="groupSelect">Group</label>
         <select id="groupSelect">
-          <option value="All Students">All Students</option>
+          <option value="All Students">All Members</option>
           <option value="Adult">Adult</option>
           <option value="Junior">Junior</option>
           <option value="Little Samurai">Little Samurai</option>
@@ -156,8 +163,8 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <div class="field">
         <label for="attendanceSelect">Attendance Selection</label>
         <select id="attendanceSelect">
-          <option value="Regular">Regular Students</option>
-          <option value="All">All Students in Group</option>
+          <option value="Regular">Regular Members</option>
+          <option value="All">All Members in Group</option>
         </select>
       </div>
 
@@ -167,16 +174,64 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         <div class="small" style="margin-top:5px">You can adjust individual training hours below.</div>
       </div>
 
-      <button class="secondary" onclick="applyDefaultHours()">Apply to all students</button>
+      <button class="secondary" onclick="applyDefaultHours()">Apply to all members</button>
     </section>
 
     <section class="panel">
-      <h2>Students</h2>
+      <h2>Members</h2>
       <div class="button-row" style="margin-bottom:12px">
         <button class="secondary" onclick="selectAll()">Select All</button>
         <button class="secondary" onclick="clearAll()">Clear All</button>
+        <button class="secondary" id="toggleAddMember" onclick="toggleAddMember()">+ Add Member</button>
       </div>
-      <div id="studentList">Loading students...</div>
+
+      <div id="addMemberBox" class="add-member-box hidden">
+        <h3>Add Member</h3>
+
+        <div class="field">
+          <label for="newFirstName">First Name</label>
+          <input type="text" id="newFirstName" maxlength="50" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="newSurname">Surname</label>
+          <input type="text" id="newSurname" maxlength="50" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="newGroup">Group</label>
+          <select id="newGroup">
+            <option value="Adult">Adult</option>
+            <option value="Junior">Junior</option>
+            <option value="Little Samurai">Little Samurai</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="newGrade">Grade</label>
+          <input type="text" id="newGrade" maxlength="60" autocomplete="off">
+          <div class="small" style="margin-top:5px">
+            Filled in automatically from the group. Change it if the member already has a grade from another dojo.
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="newAttendance">Attendance Type</label>
+          <select id="newAttendance">
+            <option value="Regular">Regular</option>
+            <option value="Casual">Casual</option>
+          </select>
+        </div>
+
+        <div class="button-row">
+          <button class="primary" id="addMemberButton" onclick="submitNewMember()">Add Member</button>
+          <button class="secondary" onclick="toggleAddMember()">Cancel</button>
+        </div>
+
+        <div id="addMemberStatus" class="status hidden"></div>
+      </div>
+
+      <div id="studentList">Loading members...</div>
       <div id="studentStatus" class="status hidden"></div>
     </section>
 
@@ -187,7 +242,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <section class="panel hidden" id="reviewArea">
       <h2>Review Records</h2>
       <p id="reviewDate"></p>
-      <p><strong>Total Students: <span id="totalStudents">0</span></strong></p>
+      <p><strong>Total Members: <span id="totalStudents">0</span></strong></p>
       <div id="reviewList"></div>
       <div id="duplicateStatus" class="status hidden"></div>
       <div class="button-row" style="margin-top:15px">
@@ -206,10 +261,17 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
 const API_URL = 'https://aikido-training-api.akiradoura.workers.dev';
 const GOOGLE_CLIENT_ID = '681504302307-iaengs4qptqn51bgvn5ooedmekk0e9h6.apps.googleusercontent.com';
 
+const DEFAULT_GRADES = {
+  'Adult': 'NO Grade Adult',
+  'Junior': 'NO Grade Junior',
+  'Little Samurai': 'NO Grade Little Samurai'
+};
+
 let idToken = '';
 let students = [];
 let duplicateRecords = [];
 let selectedEntries = [];
+let gradeEdited = false;
 
 function localDate() {
   const d = new Date();
@@ -270,7 +332,7 @@ function getTrainingDateValue() {
 function normaliseTrainingDate() {
   updateWeekday();
 }
-  
+
 function getDateWarning(isoDate) {
   const [year, month, day] = isoDate.split('-').map(Number);
   const selected = Date.UTC(year, month - 1, day);
@@ -406,7 +468,7 @@ function renderStudents() {
   container.innerHTML = '';
 
   if (filtered.length === 0) {
-    container.textContent = 'No students found in this group.';
+    container.textContent = 'No members found in this group.';
     return;
   }
 
@@ -473,6 +535,71 @@ function clearAll() {
   document.querySelectorAll('.student-check').forEach(input => input.checked = false);
 }
 
+// ---------- Add Member ----------
+
+function setDefaultGrade() {
+  const group = document.getElementById('newGroup').value;
+  document.getElementById('newGrade').value = DEFAULT_GRADES[group] || '';
+  gradeEdited = false;
+}
+
+function toggleAddMember() {
+  const box = document.getElementById('addMemberBox');
+  const opening = box.classList.contains('hidden');
+
+  box.classList.toggle('hidden');
+  document.getElementById('toggleAddMember').textContent =
+    opening ? '− Close Add Member' : '+ Add Member';
+
+  if (opening) {
+    hideStatus('addMemberStatus');
+    if (!document.getElementById('newGrade').value) setDefaultGrade();
+    document.getElementById('newFirstName').focus();
+  }
+}
+
+async function submitNewMember() {
+  const firstName = document.getElementById('newFirstName').value.trim();
+  const surname = document.getElementById('newSurname').value.trim();
+  const group = document.getElementById('newGroup').value;
+  const grade = document.getElementById('newGrade').value.trim();
+  const attendanceType = document.getElementById('newAttendance').value;
+
+  if (!firstName || !surname) {
+    showStatus('addMemberStatus', 'Please enter the first name and surname.', 'error');
+    return;
+  }
+
+  const button = document.getElementById('addMemberButton');
+  button.disabled = true;
+  showStatus('addMemberStatus', 'Adding member...');
+
+  try {
+    const result = await apiRequest('/api/add-member', 'POST', {
+      firstName,
+      surname,
+      group,
+      grade,
+      attendanceType
+    });
+
+    students = await apiRequest('/api/students');
+    renderStudents();
+
+    showStatus('addMemberStatus', result.message, 'success');
+
+    document.getElementById('newFirstName').value = '';
+    document.getElementById('newSurname').value = '';
+    document.getElementById('newAttendance').value = 'Regular';
+    setDefaultGrade();
+    document.getElementById('newFirstName').focus();
+  } catch (error) {
+    showStatus('addMemberStatus', error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function getSelectedEntries() {
   const entries = [];
 
@@ -516,7 +643,7 @@ async function showReview() {
     selectedEntries = getSelectedEntries();
 
     if (selectedEntries.length === 0) {
-      showStatus('studentStatus', 'Please select at least one student.', 'error');
+      showStatus('studentStatus', 'Please select at least one member.', 'error');
       return;
     }
 
@@ -547,6 +674,7 @@ async function showReview() {
     document.getElementById('reviewArea').scrollIntoView({ behavior: 'smooth' });
 
     document.getElementById('saveButton').disabled = true;
+    document.getElementById('saveButton').textContent = 'Save Records';
     showStatus('duplicateStatus', 'Checking for duplicate records...');
 
     const duplicates = await apiRequest('/api/check-duplicates', 'POST', {
@@ -616,6 +744,14 @@ document.getElementById('attendanceSelect').addEventListener('change', renderStu
 
 document.getElementById('trainingDate').addEventListener('change', updateWeekday);
 
+document.getElementById('newGroup').addEventListener('change', () => {
+  if (!gradeEdited) setDefaultGrade();
+});
+
+document.getElementById('newGrade').addEventListener('input', () => {
+  gradeEdited = true;
+});
+
 document.getElementById('defaultHours').addEventListener('change', () => {
   const value = Number(document.getElementById('defaultHours').value);
   if (!Number.isFinite(value) || value < 0.5 || value % 0.5 !== 0) {
@@ -624,7 +760,8 @@ document.getElementById('defaultHours').addEventListener('change', () => {
     hideStatus('studentStatus');
   }
 });
-  
+
+setDefaultGrade();
 initialiseLogin();
 </script>
 </body>
