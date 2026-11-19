@@ -137,13 +137,11 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <section class="panel">
       <h2>Training Details</h2>
 
-      <div class="field">
-        <label for="trainingDate">Training Date</label>
-        <input type="date" id="trainingDate">
-        <div class="small" style="margin-top:8px">Or enter a date manually</div>
-        <input type="text" id="trainingDateManual" inputmode="numeric" placeholder="D/M/YY or DD/MM/YYYY" autocomplete="off" style="margin-top:5px">
-        <div class="small" id="weekday" style="margin-top:6px"></div>
-      </div>
+     <div class="field">
+  <label for="trainingDate">Training Date</label>
+  <input type="date" id="trainingDate">
+  <div class="small" id="weekday" style="margin-top:6px"></div>
+</div>
 
       <div class="field">
         <label for="groupSelect">Group</label>
@@ -266,23 +264,13 @@ function formatTrainingDate(isoDate, includeWeekday = false) {
 }
 
 function getTrainingDateValue() {
-  const manual = document.getElementById('trainingDateManual').value.trim();
-  return manual || document.getElementById('trainingDate').value;
+  return document.getElementById('trainingDate').value;
 }
 
 function normaliseTrainingDate() {
-  const input = document.getElementById('trainingDateManual');
-  if (!input.value.trim()) return;
-
-  try {
-    const isoDate = parseTrainingDate(input.value);
-    input.value = formatTrainingDate(isoDate);
-    updateWeekday();
-  } catch (error) {
-    showStatus('studentStatus', error.message, 'error');
-  }
+  updateWeekday();
 }
-
+  
 function getDateWarning(isoDate) {
   const [year, month, day] = isoDate.split('-').map(Number);
   const selected = Date.UTC(year, month - 1, day);
@@ -340,7 +328,6 @@ async function handleLogin(response) {
 
     students = result;
     document.getElementById('trainingDate').value = localDate();
-    document.getElementById('trainingDateManual').value = '';
     updateWeekday();
     renderStudents();
   } catch (error) {
@@ -626,12 +613,8 @@ document.getElementById('groupSelect').addEventListener('change', () => {
 });
 
 document.getElementById('attendanceSelect').addEventListener('change', renderStudents);
-document.getElementById('trainingDate').addEventListener('change', () => {
-  document.getElementById('trainingDateManual').value = '';
-  updateWeekday();
-});
-document.getElementById('trainingDateManual').addEventListener('input', updateWeekday);
-document.getElementById('trainingDateManual').addEventListener('blur', normaliseTrainingDate);
+
+document.getElementById('trainingDate').addEventListener('change', updateWeekday);
 
 document.getElementById('defaultHours').addEventListener('change', () => {
   const value = Number(document.getElementById('defaultHours').value);
@@ -641,7 +624,7 @@ document.getElementById('defaultHours').addEventListener('change', () => {
     hideStatus('studentStatus');
   }
 });
-
+  
 initialiseLogin();
 </script>
 </body>
