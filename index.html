@@ -161,14 +161,6 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
 
       <div class="field">
-        <label for="attendanceSelect">Attendance Selection</label>
-        <select id="attendanceSelect">
-          <option value="Regular">Regular Members</option>
-          <option value="All">All Members in Group</option>
-        </select>
-      </div>
-
-      <div class="field">
         <label for="defaultHours">Default Training Hours</label>
         <input type="number" id="defaultHours" min="0.5" step="0.5" value="1.5">
         <div class="small" style="margin-top:5px">You can adjust individual training hours below.</div>
@@ -180,6 +172,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <section class="panel">
       <h2>Members</h2>
       <div class="button-row" style="margin-bottom:12px">
+        <button class="secondary" onclick="selectRegular()">Regular</button>
         <button class="secondary" onclick="selectAll()">Select All</button>
         <button class="secondary" onclick="clearAll()">Clear All</button>
         <button class="secondary" id="toggleAddMember" onclick="toggleAddMember()">+ Add Member</button>
@@ -460,7 +453,6 @@ function defaultForGroup() {
 
 function renderStudents() {
   const group = document.getElementById('groupSelect').value;
-  const attendance = document.getElementById('attendanceSelect').value;
 
   const filtered = students.filter(s =>
     group === 'All Students' || s.group === group
@@ -476,7 +468,7 @@ function renderStudents() {
 
   filtered.forEach(student => {
     const isRegular = student.attendance.toLowerCase() === 'regular';
-    const checked = attendance === 'All' || isRegular;
+    const checked = isRegular;
 
     const row = document.createElement('div');
     row.className = 'student';
@@ -486,6 +478,7 @@ function renderStudents() {
     checkbox.className = 'student-check';
     checkbox.checked = checked;
     checkbox.dataset.id = student.id;
+    checkbox.dataset.regular = isRegular ? '1' : '0';
 
     const name = document.createElement('div');
     name.className = 'student-name';
@@ -527,6 +520,12 @@ function applyDefaultHours() {
   });
 
   hideStatus('studentStatus');
+}
+
+function selectRegular() {
+  document.querySelectorAll('.student-check').forEach(input => {
+    input.checked = input.dataset.regular === '1';
+  });
 }
 
 function selectAll() {
@@ -775,8 +774,6 @@ document.getElementById('groupSelect').addEventListener('change', () => {
   defaultForGroup();
   renderStudents();
 });
-
-document.getElementById('attendanceSelect').addEventListener('change', renderStudents);
 
 document.getElementById('trainingDate').addEventListener('change', updateWeekday);
 
