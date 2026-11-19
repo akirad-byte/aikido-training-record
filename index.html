@@ -174,6 +174,14 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
 
       <div class="field">
+        <label for="recordedBy">Recorded by</label>
+        <select id="recordedBy">
+          <option value="">Select recorder</option>
+        </select>
+        <div class="small" style="margin-top:5px">Black belt members only.</div>
+      </div>
+
+      <div class="field">
         <label for="groupSelect">Group</label>
         <select id="groupSelect">
           <option value="All Students">All Members</option>
@@ -258,6 +266,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <section class="panel hidden" id="reviewArea">
       <h2>Review Records</h2>
       <p id="reviewDate"></p>
+      <p id="reviewRecorder"></p>
       <p><strong>Total Members: <span id="totalStudents">0</span></strong></p>
       <div id="reviewList"></div>
       <div id="duplicateStatus" class="status hidden"></div>
@@ -278,15 +287,16 @@ const API_URL = 'https://aikido-training-api.akiradoura.workers.dev';
 const GOOGLE_CLIENT_ID = '681504302307-iaengs4qptqn51bgvn5ooedmekk0e9h6.apps.googleusercontent.com';
 
 const DEFAULT_GRADES = {
-  'Adult': 'NO Grade Adult',
-  'Junior': 'NO Grade Junior',
-  'Little Samurai': 'NO Grade Little Samurai'
+  'Adult': 'Ungraded Adult',
+  'Junior': 'Ungraded Junior',
+  'Little Samurai': 'Ungraded Little Samurai'
 };
 
 let idToken = '';
 let students = [];
 let duplicateRecords = [];
 let selectedEntries = [];
+let selectedRecorder = '';
 let gradeEdited = false;
 let gradeOptions = [];
 
@@ -410,6 +420,7 @@ async function handleLogin(response) {
     document.getElementById('trainingDate').value = localDate();
     updateWeekday();
     renderStudents();
+    populateRecorders();
   } catch (error) {
     idToken = '';
     showStatus('loginStatus', error.message, 'error');
@@ -474,12 +485,11 @@ function defaultForGroup() {
   document.getElementById('defaultHours').value = hours;
 }
 
-// Rank a grade so that higher grades sort first.
-// Dan > Kyu (1 Kyu highest) > "Semi" grades (just below the matching Kyu) > NO Grade > blank
+// Rank a grade (used for colours). Sorting uses GRADE_ORDER below.
 function parseGrade(grade) {
   const g = String(grade || '').trim();
   if (!g) return { rank: -1, kind: 'blank' };
-  if (/^no grade/i.test(g)) return { rank: 0, kind: 'nograde' };
+  if (/^(no grade|ungraded)/i.test(g)) return { rank: 0, kind: 'nograde' };
   if (/^shodan$/i.test(g)) return { rank: 201, kind: 'dan', n: 1 };
 
   const dan = g.match(/^(\d+)\s*(?:st|nd|rd|th)?\s*dan$/i);
@@ -524,18 +534,18 @@ function gradeColorClass(grade) {
 
 // Grade order, lowest to highest (same order as the Sheet2 grade list)
 const GRADE_ORDER = [
-  'NO Grade Little Samurai',
+  'Ungraded Little Samurai',
   'Semi 13 Kyu', '13 Kyu',
   'Semi 12 Kyu', '12 Kyu',
   'Semi 11 Kyu', '11 Kyu',
   'Semi 10 Kyu', '10 Kyu',
-  'NO Grade Junior',
+  'Ungraded Junior',
   'Semi 9 Kyu', '9 Kyu',
   'Semi 8 Kyu', '8 Kyu',
   'Semi 7 Kyu', '7 Kyu',
   'Semi 6 Kyu', '6 Kyu',
   'Semi 5 Kyu',
-  'NO Grade Adult',
+  'Ungraded Adult',
   '5 Kyu', '4 Kyu', '3 Kyu', '2 Kyu', '1 Kyu',
   'Shodan',
   '2 Dan', '3 Dan', '4 Dan', '5 Dan', '6 Dan', '7 Dan'
@@ -644,6 +654,40 @@ function applyDefaultHours() {
   hideStatus('studentStatus');
 }
 
+function isBlackBelt(grade) {
+  const g = String(grade || '').trim();
+  return /^shodan$/i.test(g) || /^\d+\s*(?:st|nd|rd|th)?\s*dan$/i.test(g);
+}
+
+function populateRecorders() {
+  const select = document.getElementById('recordedBy');
+
+  let saved = '';
+  try { saved = localStorage.getItem('aikidoRecorder') || ''; } catch (e) {}
+
+  const current = select.value || saved;
+  const blackBelts = students.filter(s => isBlackBelt(s.grade)).sort(compareMembers);
+
+  select.innerHTML = '';
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = blackBelts.length ? 'Select recorder' : 'No black belt members found';
+  select.appendChild(placeholder);
+
+  blackBelts.forEach(member => {
+    const name = member.firstName + ' ' + member.surname;
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name + ' (' + member.grade + ')';
+    select.appendChild(option);
+  });
+
+  if (blackBelts.some(m => (m.firstName + ' ' + m.surname) === current)) {
+    select.value = current;
+  }
+}
+
 function selectRegular() {
   document.querySelectorAll('.student-check').forEach(input => {
     input.checked = input.dataset.regular === '1';
@@ -742,6 +786,7 @@ async function submitNewMember() {
 
     students = await apiRequest('/api/students');
     renderStudents();
+    populateRecorders();
 
     showStatus('addMemberStatus', result.message, 'success');
 
@@ -791,6 +836,14 @@ async function showReview() {
     return;
   }
 
+  const recorder = document.getElementById('recordedBy').value;
+  if (!recorder) {
+    showStatus('studentStatus', 'Please select who is recording this session.', 'error');
+    document.getElementById('recordedBy').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  selectedRecorder = recorder;
+
   const dateWarning = getDateWarning(date);
   if (dateWarning && !confirm(dateWarning + '\n\nDo you want to continue?')) {
     return;
@@ -806,6 +859,9 @@ async function showReview() {
 
     document.getElementById('reviewDate').textContent =
       'Training Date: ' + formatTrainingDate(date, true);
+
+    document.getElementById('reviewRecorder').textContent =
+      'Recorded by: ' + selectedRecorder;
 
     document.getElementById('totalStudents').textContent =
       selectedEntries.length;
@@ -880,7 +936,8 @@ async function saveRecords() {
     const trainingDate = parseTrainingDate(getTrainingDateValue());
     const result = await apiRequest('/api/save-training-batch', 'POST', {
       date: trainingDate,
-      entries: selectedEntries
+      entries: selectedEntries,
+      recordedBy: selectedRecorder
     });
 
     showStatus('saveStatus', result.message, 'success');
@@ -912,6 +969,12 @@ document.getElementById('defaultHours').addEventListener('change', () => {
   } else {
     hideStatus('studentStatus');
   }
+});
+
+document.getElementById('recordedBy').addEventListener('change', () => {
+  try {
+    localStorage.setItem('aikidoRecorder', document.getElementById('recordedBy').value);
+  } catch (e) {}
 });
 
 setDefaultGrade();
