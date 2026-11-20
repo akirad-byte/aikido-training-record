@@ -215,12 +215,12 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         <select id="recordedBy">
           <option value="">Select recorder</option>
         </select>
-        <div class="small" style="margin-top:5px">Black belt members only.</div>
+        <div class="small" style="margin-top:5px">Black and brown belt members only.</div>
       </div>
 
       <div class="field">
         <label for="sessionNotes">Notes (optional)</label>
-        <textarea id="sessionNotes" rows="2" maxlength="500" placeholder="e.g. Weapons class, guest instructor"></textarea>
+        <textarea id="sessionNotes" rows="2" maxlength="500" placeholder="e.g. Special class, grading, guest instructor"></textarea>
       </div>
 
       <div class="field">
@@ -290,6 +290,14 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
           </select>
         </div>
 
+        <div class="field">
+          <label for="newGradingDate">Last Grading Date (optional)</label>
+          <input type="date" id="newGradingDate">
+          <div class="small" style="margin-top:5px">
+            Used for "days since last grading". Leave blank if unknown.
+          </div>
+        </div>
+
         <div class="button-row">
           <button class="primary" id="addMemberButton" onclick="submitNewMember()">Add Member</button>
           <button class="secondary" onclick="toggleAddMember()">Cancel</button>
@@ -318,6 +326,32 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         <button class="secondary" onclick="backToEntry()">Back to Edit</button>
         <button class="primary" id="saveButton" onclick="saveRecords()">Save Records</button>
       </div>
+    </section>
+
+    <section class="panel" id="exportPanel">
+      <h2>Export to Excel</h2>
+
+      <div class="field">
+        <label for="exportFrom">From</label>
+        <input type="date" id="exportFrom">
+      </div>
+
+      <div class="field">
+        <label for="exportTo">To</label>
+        <input type="date" id="exportTo">
+      </div>
+
+      <div class="small" id="exportRange" style="margin-bottom:12px"></div>
+
+      <div class="field">
+        <label style="font-weight:normal">
+          <input type="checkbox" id="exportDaily" style="width:auto;margin-right:8px">
+          Include daily training hours
+        </label>
+      </div>
+
+      <button class="primary" id="exportButton" onclick="downloadExcel()">Download Excel</button>
+      <div id="exportStatus" class="status hidden"></div>
     </section>
 
     <div id="saveStatus" class="status hidden"></div>
@@ -469,6 +503,7 @@ async function handleLogin(response) {
 
     students = result;
     loadGrades();
+    loadExportInfo();
     document.getElementById('trainingDate').value = localDate();
     updateWeekday();
     renderStudents();
@@ -856,6 +891,15 @@ function renderProfile(p) {
   }
 }
 
+function isBrownBelt(grade) {
+  return /^[1-3]\s*kyu$/i.test(String(grade || '').trim());
+}
+
+// Black belts and brown belts (1-3 Kyu) can be the recorder
+function isRecorderGrade(grade) {
+  return isBlackBelt(grade) || isBrownBelt(grade);
+}
+
 function isBlackBelt(grade) {
   const g = String(grade || '').trim();
   return /^shodan$/i.test(g) || /^\d+\s*(?:st|nd|rd|th)?\s*dan$/i.test(g);
@@ -865,13 +909,13 @@ function populateRecorders() {
   const select = document.getElementById('recordedBy');
 
   const current = select.value;
-  const blackBelts = students.filter(s => isBlackBelt(s.grade)).sort(compareMembers); // highest grade first
+  const blackBelts = students.filter(s => isRecorderGrade(s.grade)).sort(compareMembers); // highest grade first
 
   select.innerHTML = '';
 
   const placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = blackBelts.length ? 'Select recorder' : 'No black belt members found';
+  placeholder.textContent = blackBelts.length ? 'Select recorder' : 'No eligible members found';
   select.appendChild(placeholder);
 
   blackBelts.forEach(member => {
@@ -944,6 +988,329 @@ async function loadGrades() {
   setDefaultGrade();
 }
 
+// ---------- Minimal XLSX writer (no external library) ----------
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function zipStore(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  const u16 = n => [n & 0xFF, (n >>> 8) & 0xFF];
+  const u32 = n => [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF];
+
+  files.forEach(file => {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+
+    const local = new Uint8Array([
+      ...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0),
+      ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length),
+      ...u16(name.length), ...u16(0)
+    ]);
+
+    chunks.push(local, name, data);
+
+    central.push(new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0),
+      ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length),
+      ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(0), ...u32(offset)
+    ]), name);
+
+    offset += local.length + name.length + data.length;
+  });
+
+  let centralSize = 0;
+  central.forEach(c => { chunks.push(c); centralSize += c.length; });
+
+  chunks.push(new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(centralSize), ...u32(offset), ...u16(0)
+  ]));
+
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  chunks.forEach(c => { out.set(c, pos); pos += c.length; });
+  return out;
+}
+
+function xmlEscape(text) {
+  return String(text)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function xlsxColumnName(index) {
+  let n = index + 1;
+  let name = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    name = String.fromCharCode(65 + r) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+// rows: array of arrays of string | number | null. First row is the header.
+function buildXlsx(rows, sheetName, columnWidths) {
+  const sheetRows = rows.map((row, r) => {
+    const cells = row.map((value, c) => {
+      if (value === null || value === undefined || value === '') return '';
+      const ref = xlsxColumnName(c) + (r + 1);
+      const style = r === 0 ? ' s="1"' : '';
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return '<c r="' + ref + '"' + style + '><v>' + value + '</v></c>';
+      }
+      return '<c r="' + ref + '"' + style + ' t="inlineStr"><is><t xml:space="preserve">' +
+        xmlEscape(value) + '</t></is></c>';
+    }).join('');
+    const height = r === 0 ? ' ht="32" customHeight="1"' : '';
+    return '<row r="' + (r + 1) + '"' + height + '>' + cells + '</row>';
+  }).join('');
+
+  const cols = '<cols>' + columnWidths.map((w, i) =>
+    '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'
+  ).join('') + '</cols>';
+
+  const sheet =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetViews><sheetView workbookViewId="0">' +
+    '<pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/>' +
+    '</sheetView></sheetViews>' +
+    '<sheetFormatPr defaultRowHeight="15"/>' + cols +
+    '<sheetData>' + sheetRows + '</sheetData></worksheet>';
+
+  const styles =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>' +
+    '<fills count="3"><fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF142D4E"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">' +
+    '<alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs>' +
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '</styleSheet>';
+
+  const files = [
+    { name: '[Content_Types].xml', content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      '</Types>' },
+    { name: '_rels/.rels', content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/workbook.xml', content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="' + xmlEscape(sheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/styles.xml', content: styles },
+    { name: 'xl/worksheets/sheet1.xml', content: sheet }
+  ];
+
+  return zipStore(files);
+}
+
+
+// ---------- Export to Excel ----------
+
+function formatDisplayDate(iso) {
+  const [y, m, d] = iso.split('-');
+  return d + '/' + m + '/' + y;
+}
+
+function clampDate(iso, min, max) {
+  if (min && iso < min) return min;
+  if (max && iso > max) return max;
+  return iso;
+}
+
+async function loadExportInfo() {
+  try {
+    const info = await apiRequest('/api/export-info');
+    const from = document.getElementById('exportFrom');
+    const to = document.getElementById('exportTo');
+
+    from.min = to.min = info.first;
+    from.max = to.max = info.last;
+
+    const today = localDate();
+    to.value = clampDate(today, info.first, info.last);
+    from.value = clampDate(today.slice(0, 8) + '01', info.first, info.last);
+
+    document.getElementById('exportRange').textContent =
+      'Available period: ' + formatDisplayDate(info.first) + ' – ' + formatDisplayDate(info.last);
+  } catch (error) {
+    document.getElementById('exportRange').textContent = '';
+  }
+}
+
+function buildExportRows(data, includeDaily) {
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const header = [
+    'Name',
+    'Current Grade',
+    'Group',
+    'Last Grading Date',
+    'Days Since Last Grading',
+    'Total Training Hours',
+    'Hours in Selected Period',
+    'Next Grade',
+    'Requirement of Training Days',
+    'Requirement of Days'
+  ];
+
+  if (includeDaily) {
+    data.dates.forEach(iso => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const weekday = dayNames[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+      header.push(formatDisplayDate(iso) + ' ' + weekday);
+    });
+  }
+
+  const asNumber = value => {
+    const n = Number(value);
+    return value !== '' && Number.isFinite(n) ? n : (value || null);
+  };
+
+  const requirementText = (value, unit) => {
+    const text = describeRequirement(value, '', unit).text;
+    return text === '—' ? null : text;
+  };
+
+  const members = data.members.slice().sort(compareMembers);
+
+  const rows = members.map(member => {
+    const row = [
+      member.firstName + ' ' + member.surname,
+      member.grade || null,
+      member.group || null,
+      member.lastGrading || null,
+      asNumber(member.sinceLastGrading),
+      asNumber(member.totalHours),
+      member.hoursInPeriod,
+      member.nextGrade || null,
+      requirementText(member.trainingRequirement, ''),
+      requirementText(member.daysRequirement, 'days')
+    ];
+
+    if (includeDaily) {
+      member.daily.forEach(hours => row.push(hours ? hours : null));
+    }
+
+    return row;
+  });
+
+  const widths = [24, 18, 16, 16, 13, 13, 14, 18, 20, 18];
+  if (includeDaily) data.dates.forEach(() => widths.push(12));
+
+  return { rows: [header, ...rows], widths };
+}
+
+async function downloadExcel() {
+  const from = document.getElementById('exportFrom').value;
+  const to = document.getElementById('exportTo').value;
+  const includeDaily = document.getElementById('exportDaily').checked;
+  const button = document.getElementById('exportButton');
+
+  if (!from || !to) {
+    showStatus('exportStatus', 'Please choose both a start and an end date.', 'error');
+    return;
+  }
+
+  if (from > to) {
+    showStatus('exportStatus', 'The start date must not be after the end date.', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  showStatus('exportStatus', 'Preparing the Excel file...');
+
+  try {
+    const data = await apiRequest(
+      '/api/export?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
+    );
+
+    const built = buildExportRows(data, includeDaily);
+    const bytes = buildXlsx(built.rows, 'Training Records', built.widths);
+
+    const blob = new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'Aikido_Training_' + from + '_to_' + to + '.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    showStatus(
+      'exportStatus',
+      'Downloaded ' + (built.rows.length - 1) + ' members (' +
+      formatDisplayDate(from) + ' – ' + formatDisplayDate(to) + ').',
+      'success'
+    );
+  } catch (error) {
+    showStatus('exportStatus', error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function syncNewGroupFromTraining() {
+  const group = document.getElementById('groupSelect').value;
+  if (['Adult', 'Junior', 'Little Samurai'].includes(group)) {
+    document.getElementById('newGroup').value = group;
+    setDefaultGrade();
+  }
+}
+
 function toggleAddMember() {
   const box = document.getElementById('addMemberBox');
   const opening = box.classList.contains('hidden');
@@ -954,6 +1321,7 @@ function toggleAddMember() {
 
   if (opening) {
     hideStatus('addMemberStatus');
+    syncNewGroupFromTraining();
     document.getElementById('newFirstName').focus();
   }
 }
@@ -964,6 +1332,7 @@ async function submitNewMember() {
   const group = document.getElementById('newGroup').value;
   const grade = document.getElementById('newGrade').value.trim();
   const attendanceType = document.getElementById('newAttendance').value;
+  const lastGrading = document.getElementById('newGradingDate').value;
 
   if (!firstName || !surname) {
     showStatus('addMemberStatus', 'Please enter the first name and surname.', 'error');
@@ -980,7 +1349,8 @@ async function submitNewMember() {
       surname,
       group,
       grade,
-      attendanceType
+      attendanceType,
+      lastGrading
     });
 
     students = await apiRequest('/api/students');
@@ -992,6 +1362,7 @@ async function submitNewMember() {
     document.getElementById('newFirstName').value = '';
     document.getElementById('newSurname').value = '';
     document.getElementById('newAttendance').value = 'Regular';
+    document.getElementById('newGradingDate').value = '';
     setDefaultGrade();
     document.getElementById('newFirstName').focus();
   } catch (error) {
@@ -1047,6 +1418,16 @@ async function showReview() {
   const dateWarning = getDateWarning(date);
   if (dateWarning && !confirm(dateWarning + '\n\nDo you want to continue?')) {
     return;
+  }
+
+  // Tuesday, Thursday and Sunday are not regular training days
+  const [dy, dm, dd] = date.split('-').map(Number);
+  const weekdayIndex = new Date(Date.UTC(dy, dm - 1, dd)).getUTCDay();
+  if ([0, 2, 4].includes(weekdayIndex)) {
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekdayIndex];
+    if (!confirm(dayName + ' is not a regular training day. Is this a special session (for example a grading)?\n\nYou can add details in Notes.')) {
+      return;
+    }
   }
 
   try {
@@ -1157,6 +1538,9 @@ async function saveRecords() {
 document.getElementById('groupSelect').addEventListener('change', () => {
   defaultForGroup();
   renderStudents();
+  if (!document.getElementById('addMemberBox').classList.contains('hidden')) {
+    syncNewGroupFromTraining();
+  }
 });
 
 document.getElementById('trainingDate').addEventListener('change', updateWeekday);
