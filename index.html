@@ -328,12 +328,9 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         </div>
 
         <div class="field">
-          <label for="newGradingDate">Last Grading Date (optional)</label>
+          <label for="newGradingDate" id="newGradingDateLabel">Join Date</label>
           <input type="date" id="newGradingDate">
-          <div class="small" style="margin-top:5px">
-            Used for "days since last grading" and school-term requirements.
-            For a new member, enter the date they joined.
-          </div>
+          <div class="small" style="margin-top:5px" id="newGradingDateHint"></div>
         </div>
 
         <div class="button-row">
@@ -1164,10 +1161,36 @@ function populateGradeSelect(selectedValue) {
   select.value = selectedValue;
 }
 
+// For an ungraded (new) member this field is the join date, filled with today.
+// For a member who already has a grade it is the last grading date (optional).
+let newDateAuto = true;
+
+function updateNewMemberDateField() {
+  const ungraded = /^ungraded/i.test(document.getElementById('newGrade').value);
+  const input = document.getElementById('newGradingDate');
+
+  document.getElementById('newGradingDateLabel').textContent =
+    ungraded ? 'Join Date' : 'Last Grading Date (optional)';
+
+  document.getElementById('newGradingDateHint').textContent = ungraded
+    ? 'The date this member joined. It is saved as the "Last grading date" and used for the first school-term requirement.'
+    : 'The date of the last grading (here or at another dojo). Leave blank if unknown.';
+
+  if (ungraded) {
+    if (!input.value || newDateAuto) {
+      input.value = localDate();
+      newDateAuto = true;
+    }
+  } else if (newDateAuto) {
+    input.value = '';
+  }
+}
+
 function setDefaultGrade() {
   const group = document.getElementById('newGroup').value;
   populateGradeSelect(DEFAULT_GRADES[group] || '');
   gradeEdited = false;
+  updateNewMemberDateField();
 }
 
 async function loadGrades() {
@@ -1553,6 +1576,11 @@ async function submitNewMember() {
     return;
   }
 
+  if (/^ungraded/i.test(grade) && !lastGrading) {
+    showStatus('addMemberStatus', 'Please enter the join date.', 'error');
+    return;
+  }
+
   const button = document.getElementById('addMemberButton');
   button.disabled = true;
   showStatus('addMemberStatus', 'Adding member...');
@@ -1576,6 +1604,7 @@ async function submitNewMember() {
     document.getElementById('newFirstName').value = '';
     document.getElementById('newSurname').value = '';
     document.getElementById('newAttendance').value = 'Regular';
+    newDateAuto = true;
     document.getElementById('newGradingDate').value = '';
     setDefaultGrade();
     document.getElementById('newFirstName').focus();
@@ -1829,7 +1858,12 @@ document.getElementById('trainingDate').addEventListener('change', updateWeekday
 
 document.getElementById('newGroup').addEventListener('change', setDefaultGrade);
 
+document.getElementById('newGradingDate').addEventListener('input', () => {
+  newDateAuto = false;
+});
+
 document.getElementById('newGrade').addEventListener('change', () => {
+  updateNewMemberDateField();
   gradeEdited = true;
 });
 
