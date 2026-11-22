@@ -363,6 +363,77 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
     </section>
 
+    <section class="panel" id="promoPanel">
+      <h2>Grading</h2>
+      <div class="small" style="margin-bottom:12px">
+        Promote members after a grading. Current Grade and Last Grading date are updated in the spreadsheet.
+      </div>
+      <button class="secondary" id="promoToggle" onclick="toggleGrading()">Open grading promotion</button>
+
+      <div id="promoBody" class="hidden" style="margin-top:16px">
+        <div class="field">
+          <label for="promoDate">Grading Date</label>
+          <input type="date" id="promoDate">
+        </div>
+
+        <div class="field">
+          <label for="promoRecorder">Recorded by</label>
+          <select id="promoRecorder">
+            <option value="">Select recorder</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="promoGroup">Group</label>
+          <select id="promoGroup">
+            <option value="All Students">All Members</option>
+            <option value="Adult">Adult</option>
+            <option value="Junior">Junior</option>
+            <option value="Little Samurai">Little Samurai</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="promoShow">Show</label>
+          <select id="promoShow">
+            <option value="soon">Eligible + Soon</option>
+            <option value="eligible">Eligible only</option>
+            <option value="all">All members</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="promoNotes">Notes (optional)</label>
+          <textarea id="promoNotes" rows="2" maxlength="500" placeholder="e.g. Term 4 grading"></textarea>
+        </div>
+
+        <div class="button-row" style="margin-bottom:12px">
+          <button class="secondary" onclick="promoSelectEligible()">Select Eligible</button>
+          <button class="secondary" onclick="promoClearAll()">Clear All</button>
+        </div>
+
+        <div class="small" id="promoCount" style="margin-bottom:10px"></div>
+        <div id="promoList"></div>
+        <div id="promoStatus" class="status hidden"></div>
+
+        <button class="primary" style="width:100%;margin-top:10px" onclick="showPromoReview()">Review Promotion</button>
+
+        <div id="promoReview" class="hidden" style="margin-top:18px">
+          <h2>Review Promotion</h2>
+          <p id="promoReviewDate"></p>
+          <p id="promoReviewRecorder"></p>
+          <p id="promoReviewNotes" class="hidden"></p>
+          <p><strong>Members to promote: <span id="promoReviewCount">0</span></strong></p>
+          <div id="promoReviewList"></div>
+          <div id="promoReviewWarning" class="status error hidden"></div>
+          <div class="button-row" style="margin-top:15px">
+            <button class="secondary" onclick="hidePromoReview()">Back to Edit</button>
+            <button class="primary" id="promoContinueButton" onclick="openPromoConfirm()">Continue</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" id="exportPanel">
       <h2>Export to Excel</h2>
 
@@ -397,6 +468,17 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
   <div class="profile-card">
     <div id="profileBody">Loading profile...</div>
     <button class="secondary" style="width:100%;margin-top:16px" onclick="closeProfile()">Close</button>
+  </div>
+</div>
+
+<div id="promoConfirmOverlay" class="overlay hidden">
+  <div class="profile-card">
+    <h2>Final confirmation</h2>
+    <div id="promoConfirmBody"></div>
+    <div class="button-row" style="margin-top:16px">
+      <button class="secondary" onclick="closePromoConfirm()">Cancel</button>
+      <button class="primary" id="promoConfirmButton" onclick="executePromotion()">Yes, change grades</button>
+    </div>
   </div>
 </div>
 
@@ -576,6 +658,8 @@ function signOut() {
   idToken = '';
   rowState = {};
   document.getElementById('recordedBy').value = '';
+  document.getElementById('promoRecorder').value = '';
+  promoState = {};
   students = [];
   document.getElementById('appArea').classList.add('hidden');
   document.getElementById('loginArea').classList.remove('hidden');
@@ -1091,30 +1175,344 @@ function isBlackBelt(grade) {
   return /^shodan$/i.test(g) || /^\d+\s*(?:st|nd|rd|th)?\s*dan$/i.test(g);
 }
 
-function populateRecorders() {
-  const select = document.getElementById('recordedBy');
+// ---------- Grading (promotion) ----------
 
-  const current = select.value;
-  const blackBelts = students.filter(s => isRecorderGrade(s.grade)).sort(compareMembers); // highest grade first
+let promoState = {};      // member id -> true when ticked
+let promoEntries = [];
+let promoDate = '';
+let promoRecorder = '';
+let promoNotes = '';
 
-  select.innerHTML = '';
+function gradeBadgeElement(grade) {
+  const badge = document.createElement('span');
+  badge.className = 'grade-badge ' + gradeColorClass(grade);
+  badge.textContent = grade || 'No grade';
+  return badge;
+}
 
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = blackBelts.length ? 'Select recorder' : 'No eligible members found';
-  select.appendChild(placeholder);
+function toggleGrading() {
+  const body = document.getElementById('promoBody');
+  const opening = body.classList.contains('hidden');
 
-  blackBelts.forEach(member => {
-    const name = member.firstName + ' ' + member.surname;
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = name + ' (' + member.grade + ')';
-    select.appendChild(option);
+  body.classList.toggle('hidden');
+  document.getElementById('promoToggle').textContent =
+    opening ? 'Close grading promotion' : 'Open grading promotion';
+
+  if (opening) {
+    if (!document.getElementById('promoDate').value) {
+      document.getElementById('promoDate').value = localDate();
+    }
+    populateRecorders();
+    renderPromoList();
+  }
+}
+
+function promoGroupMembers() {
+  const group = document.getElementById('promoGroup').value;
+  return students
+    .filter(s => group === 'All Students' || s.group === group)
+    .sort(compareMembers);
+}
+
+function promoListMembers() {
+  const show = document.getElementById('promoShow').value;
+
+  return promoGroupMembers().filter(s => {
+    if (show === 'all') return true;
+
+    // Members at the top grade have nothing to be promoted to
+    if (!s.nextGrade) return false;
+
+    const key = gradingStatus(s).key;
+    return show === 'eligible' ? key === 'eligible' : key !== 'none';
+  });
+}
+
+function promoSelectedMembers() {
+  return promoGroupMembers().filter(s => promoState[s.id] && s.nextGrade);
+}
+
+function updatePromoCount(shown) {
+  const all = promoGroupMembers();
+  document.getElementById('promoCount').textContent =
+    'Showing ' + shown + ' of ' + all.length + ' members · ' +
+    promoSelectedMembers().length + ' selected';
+}
+
+function renderPromoList() {
+  const container = document.getElementById('promoList');
+  container.innerHTML = '';
+
+  const shown = promoListMembers();
+  updatePromoCount(shown.length);
+
+  if (shown.length === 0) {
+    container.textContent = 'No members to show. Change "Show" to see more members.';
+    return;
+  }
+
+  shown.forEach(student => {
+    const row = document.createElement('div');
+    row.className = 'student';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'student-check';
+    checkbox.disabled = !student.nextGrade;
+    checkbox.checked = !!promoState[student.id] && !!student.nextGrade;
+    checkbox.addEventListener('change', () => {
+      promoState[student.id] = checkbox.checked;
+      updatePromoCount(shown.length);
+    });
+
+    const name = document.createElement('div');
+    name.className = 'student-name';
+
+    const strong = document.createElement('strong');
+    strong.textContent = student.firstName + ' ' + student.surname;
+
+    const small = document.createElement('small');
+    small.appendChild(gradeBadgeElement(student.grade));
+
+    if (student.nextGrade) {
+      small.appendChild(document.createTextNode('→ '));
+      small.appendChild(gradeBadgeElement(student.nextGrade));
+    } else {
+      small.appendChild(document.createTextNode('No next grade'));
+    }
+
+    const status = gradingStatus(student);
+    if (status.key !== 'none') {
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'status-badge ' + status.key;
+      statusBadge.textContent = status.label;
+      small.appendChild(statusBadge);
+    }
+
+    name.append(strong, small);
+    row.append(checkbox, name);
+    container.appendChild(row);
+  });
+}
+
+function promoSelectEligible() {
+  promoListMembers().forEach(s => {
+    promoState[s.id] = gradingStatus(s).key === 'eligible' && !!s.nextGrade;
+  });
+  renderPromoList();
+}
+
+function promoClearAll() {
+  promoListMembers().forEach(s => { promoState[s.id] = false; });
+  renderPromoList();
+}
+
+function hidePromoReview() {
+  document.getElementById('promoReview').classList.add('hidden');
+}
+
+// Confirmation 1: the review screen
+function showPromoReview() {
+  hideStatus('promoStatus');
+
+  let isoDate;
+  try {
+    isoDate = parseTrainingDate(document.getElementById('promoDate').value);
+  } catch (error) {
+    showStatus('promoStatus', error.message, 'error');
+    return;
+  }
+
+  const recorder = document.getElementById('promoRecorder').value;
+  if (!recorder) {
+    showStatus('promoStatus', 'Please select who is recording this grading.', 'error');
+    return;
+  }
+
+  const selected = promoSelectedMembers();
+  if (selected.length === 0) {
+    showStatus('promoStatus', 'Please select at least one member to promote.', 'error');
+    return;
+  }
+
+  const warning = getDateWarning(isoDate);
+  if (warning && !confirm(warning + '\n\nDo you want to continue?')) return;
+
+  promoDate = isoDate;
+  promoRecorder = recorder;
+  promoNotes = document.getElementById('promoNotes').value.replace(/\s+/g, ' ').trim();
+
+  promoEntries = selected.map(s => ({
+    id: s.id,
+    firstName: s.firstName,
+    surname: s.surname,
+    fromGrade: s.grade,
+    toGrade: s.nextGrade,
+    eligible: gradingStatus(s).key === 'eligible'
+  }));
+
+  document.getElementById('promoReviewDate').textContent =
+    'Grading Date: ' + formatTrainingDate(isoDate, true);
+  document.getElementById('promoReviewRecorder').textContent = 'Recorded by: ' + recorder;
+
+  const notesLine = document.getElementById('promoReviewNotes');
+  notesLine.textContent = 'Notes: ' + promoNotes;
+  notesLine.classList.toggle('hidden', !promoNotes);
+
+  document.getElementById('promoReviewCount').textContent = promoEntries.length;
+
+  const list = document.getElementById('promoReviewList');
+  list.innerHTML = '';
+
+  promoEntries.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'review-row';
+
+    const name = document.createElement('span');
+    name.textContent = entry.firstName + ' ' + entry.surname;
+
+    const change = document.createElement('strong');
+    change.textContent = entry.fromGrade + ' → ' + entry.toGrade;
+
+    row.append(name, change);
+    list.appendChild(row);
   });
 
-  if (blackBelts.some(m => (m.firstName + ' ' + m.surname) === current)) {
-    select.value = current;
+  const notReady = promoEntries.filter(e => !e.eligible);
+  const warningBox = document.getElementById('promoReviewWarning');
+
+  if (notReady.length > 0) {
+    warningBox.textContent =
+      'Not yet eligible according to the spreadsheet:\n' +
+      notReady.map(e => e.firstName + ' ' + e.surname).join('\n');
+    warningBox.classList.remove('hidden');
+  } else {
+    warningBox.classList.add('hidden');
   }
+
+  document.getElementById('promoReview').classList.remove('hidden');
+  document.getElementById('promoReview').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Confirmation 2: a final dialog before anything is written
+function openPromoConfirm() {
+  const body = document.getElementById('promoConfirmBody');
+  body.innerHTML = '';
+
+  const title = document.createElement('p');
+  title.innerHTML = '';
+  const strong = document.createElement('strong');
+  strong.textContent = 'Promote ' + promoEntries.length +
+    (promoEntries.length === 1 ? ' member?' : ' members?');
+  title.appendChild(strong);
+  body.appendChild(title);
+
+  const details = document.createElement('p');
+  details.textContent =
+    'Grading Date: ' + formatTrainingDate(promoDate, true) + '\nRecorded by: ' + promoRecorder;
+  details.style.whiteSpace = 'pre-wrap';
+  body.appendChild(details);
+
+  const list = document.createElement('div');
+  list.style.maxHeight = '40vh';
+  list.style.overflowY = 'auto';
+
+  promoEntries.forEach(entry => {
+    const line = document.createElement('div');
+    line.className = 'recent-row';
+    line.textContent = entry.firstName + ' ' + entry.surname + ': ' +
+      entry.fromGrade + ' → ' + entry.toGrade;
+    list.appendChild(line);
+  });
+  body.appendChild(list);
+
+  const notReady = promoEntries.filter(e => !e.eligible);
+  if (notReady.length > 0) {
+    const warning = document.createElement('div');
+    warning.className = 'status error';
+    warning.textContent = notReady.length + ' member(s) have not met the requirements yet.';
+    body.appendChild(warning);
+  }
+
+  const note = document.createElement('p');
+  note.className = 'small';
+  note.textContent =
+    'This changes Current Grade and Last Grading date in the spreadsheet. A history line is added to Grading Records.';
+  body.appendChild(note);
+
+  document.getElementById('promoConfirmOverlay').classList.remove('hidden');
+}
+
+function closePromoConfirm() {
+  document.getElementById('promoConfirmOverlay').classList.add('hidden');
+}
+
+async function executePromotion() {
+  const button = document.getElementById('promoConfirmButton');
+  button.disabled = true;
+  button.textContent = 'Saving...';
+
+  try {
+    const result = await apiRequest('/api/promote', 'POST', {
+      date: promoDate,
+      recordedBy: promoRecorder,
+      notes: promoNotes,
+      entries: promoEntries.map(e => ({
+        id: e.id,
+        firstName: e.firstName,
+        surname: e.surname,
+        fromGrade: e.fromGrade
+      }))
+    });
+
+    closePromoConfirm();
+
+    students = await apiRequest('/api/students');
+    promoState = {};
+    promoEntries = [];
+    hidePromoReview();
+    document.getElementById('promoNotes').value = '';
+
+    renderStudents();
+    populateRecorders();
+    renderPromoList();
+
+    showStatus('promoStatus', result.message, 'success');
+  } catch (error) {
+    closePromoConfirm();
+    showStatus('promoStatus', error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Yes, change grades';
+  }
+}
+
+function populateRecorders() {
+  const eligible = students.filter(s => isRecorderGrade(s.grade)).sort(compareMembers); // highest grade first
+
+  ['recordedBy', 'promoRecorder'].forEach(id => {
+    const select = document.getElementById(id);
+    const current = select.value;
+
+    select.innerHTML = '';
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = eligible.length ? 'Select recorder' : 'No eligible members found';
+    select.appendChild(placeholder);
+
+    eligible.forEach(member => {
+      const name = member.firstName + ' ' + member.surname;
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name + ' (' + member.grade + ')';
+      select.appendChild(option);
+    });
+
+    if (eligible.some(m => (m.firstName + ' ' + m.surname) === current)) {
+      select.value = current;
+    }
+  });
 }
 
 // The buttons act on the members currently shown in the list
@@ -1878,6 +2276,10 @@ document.getElementById('defaultHours').addEventListener('change', () => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeProfile();
+});
+
+['promoGroup', 'promoShow'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => renderPromoList());
 });
 
 ['memberSearch', 'statusFilter', 'hideInactive'].forEach(id => {
