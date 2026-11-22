@@ -94,7 +94,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .error { background: #fceaea; color: #8d2222; }
 .success { background: #e6f4e9; color: #216437; }
 .hidden { display: none; }
+.review-dup { width: 100%; }
+.review-dup select { margin-top: 6px; padding: 8px; font-size: 14px; }
 .review-row {
+  flex-wrap: wrap;
   padding: 9px 0;
   border-bottom: 1px solid #e8ecf1;
   display: flex;
@@ -160,6 +163,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .profile-section { margin: 16px 0 4px; font-weight: 700; color: var(--navy); }
 .recent-row { padding: 7px 0; border-bottom: 1px solid #e8ecf1; font-size: 14px; }
 .student-name.clickable { cursor: pointer; }
+.status-badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 6px;
+}
+.status-badge.eligible { background: #1d7a4d; color: #fff; }
+.status-badge.soon { background: #ffe39b; color: #5a4300; }
+.last-trained { font-size: 12px; color: #718096; margin-top: 3px; }
+.filter-row { margin-bottom: 10px; }
 .add-member-box {
   margin-top: 14px;
   padding: 16px;
@@ -251,6 +266,28 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         <button class="secondary" onclick="clearAll()">Clear All</button>
         <button class="secondary" id="toggleAddMember" onclick="toggleAddMember()">+ Add Member</button>
       </div>
+
+      <div class="filter-row">
+        <input type="search" id="memberSearch" placeholder="Search members by name" autocomplete="off">
+      </div>
+
+      <div class="filter-row">
+        <label for="statusFilter" style="font-weight:normal;font-size:14px">Grading status</label>
+        <select id="statusFilter">
+          <option value="all">All members</option>
+          <option value="eligible">Eligible only</option>
+          <option value="soon">Eligible + Soon</option>
+        </select>
+      </div>
+
+      <div class="filter-row">
+        <label style="font-weight:normal;font-size:14px">
+          <input type="checkbox" id="hideInactive" checked style="width:auto;margin-right:8px">
+          Hide members not trained in the last 30 days
+        </label>
+      </div>
+
+      <div class="small" id="memberCount" style="margin-bottom:10px"></div>
 
       <div id="addMemberBox" class="add-member-box hidden">
         <h3>Add Member</h3>
@@ -539,6 +576,7 @@ async function apiRequest(path, method = 'GET', data = null) {
 
 function signOut() {
   idToken = '';
+  rowState = {};
   document.getElementById('recordedBy').value = '';
   students = [];
   document.getElementById('appArea').classList.add('hidden');
@@ -660,24 +698,136 @@ function compareMembers(a, b) {
     .localeCompare(b.firstName + ' ' + b.surname, 'en', { sensitivity: 'base' });
 }
 
-function renderStudents() {
-  const group = document.getElementById('groupSelect').value;
+// ---------- Member list ----------
 
-  const filtered = students
+const INACTIVE_DAYS = 30;   // hide members whose last session is older than this
+const SOON_DAYS = 30;       // "Soon" = days requirement met within this many days
+
+let rowState = {};          // member id -> { checked, hours }
+
+function daysSince(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const [ty, tm, td] = localDate().split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(y, m - 1, d)) / 86400000);
+}
+
+// Members whose last recorded session is old. Members with no recorded
+// session at all are not treated as inactive (they may be new).
+function isInactive(student) {
+  const days = daysSince(student.lastTraining);
+  return days !== null && days > INACTIVE_DAYS;
+}
+
+function lastTrainedText(student) {
+  const days = daysSince(student.lastTraining);
+  if (days === null) return 'No sessions recorded yet';
+  if (days <= 0) return 'Last trained: today';
+  if (days === 1) return 'Last trained: yesterday';
+  return 'Last trained: ' + days + ' days ago';
+}
+
+function parseRemaining(value) {
+  const v = String(value || '').trim();
+  if (v.includes('✓')) return { met: true, remaining: 0 };
+  const m = v.match(/^\(\s*(\d+(?:\.\d+)?)\s*\)$/);
+  if (m) return { met: false, remaining: Number(m[1]) };
+  return { met: false, remaining: null };
+}
+
+function gradingStatus(student) {
+  const training = parseRemaining(student.trainingRequirement);
+  const days = parseRemaining(student.daysRequirement);
+
+  if (training.met && days.met) return { key: 'eligible', label: 'Eligible' };
+
+  if (days.remaining !== null && days.remaining <= SOON_DAYS) {
+    const parts = [];
+    if (!days.met) parts.push(days.remaining + ' days');
+    if (!training.met && training.remaining !== null) {
+      parts.push('training ' + training.remaining + ' to go');
+    }
+    return { key: 'soon', label: 'Soon · ' + parts.join(' · ') };
+  }
+
+  return { key: 'none', label: '' };
+}
+
+function isRegularMember(student) {
+  return String(student.attendance || '').toLowerCase() === 'regular';
+}
+
+function groupMembers() {
+  const group = document.getElementById('groupSelect').value;
+  return students
     .filter(s => group === 'All Students' || s.group === group)
     .sort(compareMembers);
+}
+
+function ensureRowState(student, reset) {
+  if (reset || !rowState[student.id]) {
+    rowState[student.id] = {
+      checked: isRegularMember(student) && !isInactive(student),
+      hours: document.getElementById('defaultHours').value
+    };
+  }
+}
+
+// Members shown in the list. Search and filters only change what is shown:
+// ticks and hours already entered are kept for members who are hidden.
+function listMembers() {
+  const query = document.getElementById('memberSearch').value.trim().toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+  const hideInactive = document.getElementById('hideInactive').checked;
+
+  const matches = groupMembers().filter(s => {
+    if (query && !(s.firstName + ' ' + s.surname).toLowerCase().includes(query)) return false;
+
+    const key = gradingStatus(s).key;
+    if (status === 'eligible' && key !== 'eligible') return false;
+    if (status === 'soon' && key === 'none') return false;
+
+    return true;
+  });
+
+  // Searching by name always finds everyone
+  if (!hideInactive || query) return { shown: matches, hidden: 0 };
+
+  const shown = matches.filter(s => !isInactive(s));
+  return { shown, hidden: matches.length - shown.length };
+}
+
+function updateMemberCount(listed, hidden) {
+  const all = groupMembers();
+  const selected = all.filter(s => rowState[s.id] && rowState[s.id].checked).length;
+
+  let text = 'Showing ' + listed + ' of ' + all.length + ' members · ' + selected + ' selected';
+  if (hidden > 0) {
+    text += ' · ' + hidden + ' hidden (not trained in the last ' + INACTIVE_DAYS + ' days)';
+  }
+
+  document.getElementById('memberCount').textContent = text;
+}
+
+function renderStudents(reset = false) {
+  groupMembers().forEach(s => ensureRowState(s, reset));
+
+  const { shown, hidden } = listMembers();
 
   const container = document.getElementById('studentList');
   container.innerHTML = '';
 
-  if (filtered.length === 0) {
-    container.textContent = 'No members found in this group.';
+  updateMemberCount(shown.length, hidden);
+
+  if (shown.length === 0) {
+    container.textContent = hidden > 0
+      ? 'No members to show. Uncheck "Hide members not trained in the last 30 days" to see everyone.'
+      : 'No members found.';
     return;
   }
 
-  filtered.forEach(student => {
-    const isRegular = student.attendance.toLowerCase() === 'regular';
-    const checked = isRegular;
+  shown.forEach(student => {
+    const state = rowState[student.id];
 
     const row = document.createElement('div');
     row.className = 'student';
@@ -685,9 +835,12 @@ function renderStudents() {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = 'student-check';
-    checkbox.checked = checked;
+    checkbox.checked = state.checked;
     checkbox.dataset.id = student.id;
-    checkbox.dataset.regular = isRegular ? '1' : '0';
+    checkbox.addEventListener('change', () => {
+      state.checked = checkbox.checked;
+      updateMemberCount(shown.length, hidden);
+    });
 
     const name = document.createElement('div');
     name.className = 'student-name';
@@ -709,7 +862,19 @@ function renderStudents() {
     groupBadge.textContent = student.group || 'No group';
     small.append(badge, groupBadge);
 
-    name.append(strong, small);
+    const status = gradingStatus(student);
+    if (status.key !== 'none') {
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'status-badge ' + status.key;
+      statusBadge.textContent = status.label;
+      small.append(statusBadge);
+    }
+
+    const last = document.createElement('div');
+    last.className = 'last-trained';
+    last.textContent = lastTrainedText(student);
+
+    name.append(strong, small, last);
     name.classList.add('clickable');
     name.setAttribute('role', 'button');
     name.setAttribute('tabindex', '0');
@@ -723,12 +888,13 @@ function renderStudents() {
 
     const hours = document.createElement('input');
     hours.type = 'number';
-    hours.min = '0.5';
+    hours.min = '0';
     hours.step = '0.5';
-    hours.value = document.getElementById('defaultHours').value;
+    hours.value = state.hours;
     hours.className = 'hours';
     hours.dataset.id = student.id;
     hours.setAttribute('aria-label', 'Training hours for ' + student.firstName);
+    hours.addEventListener('input', () => { state.hours = hours.value; });
 
     row.append(checkbox, name, hours);
     container.appendChild(row);
@@ -745,10 +911,12 @@ function applyDefaultHours() {
     return;
   }
 
-  document.querySelectorAll('.hours').forEach(input => {
-    input.value = value;
+  groupMembers().forEach(s => {
+    ensureRowState(s, false);
+    rowState[s.id].hours = String(value);
   });
 
+  renderStudents();
   hideStatus('studentStatus');
 }
 
@@ -931,18 +1099,20 @@ function populateRecorders() {
   }
 }
 
+// The buttons act on the members currently shown in the list
 function selectRegular() {
-  document.querySelectorAll('.student-check').forEach(input => {
-    input.checked = input.dataset.regular === '1';
-  });
+  listMembers().shown.forEach(m => { rowState[m.id].checked = isRegularMember(m); });
+  renderStudents();
 }
 
 function selectAll() {
-  document.querySelectorAll('.student-check').forEach(input => input.checked = true);
+  listMembers().shown.forEach(m => { rowState[m.id].checked = true; });
+  renderStudents();
 }
 
 function clearAll() {
-  document.querySelectorAll('.student-check').forEach(input => input.checked = false);
+  listMembers().shown.forEach(m => { rowState[m.id].checked = false; });
+  renderStudents();
 }
 
 // ---------- Add Member ----------
@@ -1375,13 +1545,15 @@ async function submitNewMember() {
 function getSelectedEntries() {
   const entries = [];
 
-  document.querySelectorAll('.student-check:checked').forEach(check => {
-    const student = students.find(s => String(s.id) === check.dataset.id);
-    const hoursInput = document.querySelector('.hours[data-id="' + check.dataset.id + '"]');
-    const hours = Number(hoursInput.value);
+  groupMembers().forEach(student => {
+    const state = rowState[student.id];
+    if (!state || !state.checked) return;
 
-    if (!student || !Number.isFinite(hours) || hours < 0.5 || hours % 0.5 !== 0) {
-      throw new Error('Please check the training hours. Use increments of 0.5 hours.');
+    const hours = Number(state.hours);
+
+    if (!Number.isFinite(hours) || hours < 0 || hours % 0.5 !== 0) {
+      throw new Error('Please check the training hours for ' + student.firstName + ' ' +
+        student.surname + '. Use increments of 0.5 hours.');
     }
 
     entries.push({
@@ -1392,6 +1564,81 @@ function getSelectedEntries() {
   });
 
   return entries;
+}
+
+let reviewDuplicates = {};   // member key -> { firstName, surname, hours, count }
+let reviewModes = {};        // member key -> 'replace' | 'add'
+
+function memberKey(entry) {
+  return (String(entry.firstName).trim() + '|' + String(entry.surname).trim()).toLowerCase();
+}
+
+// Draws the review list. Members who already have a session on this date
+// get a choice: replace the existing record, or add another session.
+// Returns true if the records cannot be saved yet.
+function renderReviewList() {
+  const list = document.getElementById('reviewList');
+  list.innerHTML = '';
+  let blocked = false;
+
+  selectedEntries.forEach(entry => {
+    const key = memberKey(entry);
+    const existing = reviewDuplicates[key];
+
+    const row = document.createElement('div');
+    row.className = 'review-row';
+
+    const name = document.createElement('span');
+    name.textContent = entry.firstName + ' ' + entry.surname;
+
+    const hours = document.createElement('strong');
+    hours.textContent = entry.hours === 0 ? 'Remove record' : entry.hours + ' hours';
+
+    row.append(name, hours);
+
+    if (existing) {
+      const wrap = document.createElement('div');
+      wrap.className = 'review-dup';
+
+      const info = document.createElement('div');
+      info.className = 'small';
+      info.textContent = 'Already recorded on this date: ' + existing.hours + ' h' +
+        (existing.count > 1 ? ' (' + existing.count + ' records)' : '');
+
+      const select = document.createElement('select');
+      select.appendChild(new Option(
+        entry.hours === 0
+          ? 'Remove the existing record'
+          : 'Replace the existing record with ' + entry.hours + ' h',
+        'replace'
+      ));
+      if (entry.hours > 0) {
+        select.appendChild(new Option(
+          'Add as another session (total ' +
+            (Math.round((existing.hours + entry.hours) * 100) / 100) + ' h)',
+          'add'
+        ));
+      }
+
+      select.value = entry.hours === 0 ? 'replace' : (reviewModes[key] || 'replace');
+      reviewModes[key] = select.value;
+      select.addEventListener('change', () => { reviewModes[key] = select.value; });
+
+      wrap.append(info, select);
+      row.appendChild(wrap);
+    } else if (entry.hours === 0) {
+      blocked = true;
+      const warning = document.createElement('div');
+      warning.className = 'small';
+      warning.style.color = '#8d2222';
+      warning.textContent = 'There is no existing record to remove.';
+      row.appendChild(warning);
+    }
+
+    list.appendChild(row);
+  });
+
+  return blocked;
 }
 
 async function showReview() {
@@ -1451,22 +1698,9 @@ async function showReview() {
     document.getElementById('totalStudents').textContent =
       selectedEntries.length;
 
-    const list = document.getElementById('reviewList');
-    list.innerHTML = '';
-
-    selectedEntries.forEach(entry => {
-      const row = document.createElement('div');
-      row.className = 'review-row';
-
-      const name = document.createElement('span');
-      name.textContent = entry.firstName + ' ' + entry.surname;
-
-      const hours = document.createElement('strong');
-      hours.textContent = entry.hours + ' hours';
-
-      row.append(name, hours);
-      list.appendChild(row);
-    });
+    reviewDuplicates = {};
+    reviewModes = {};
+    renderReviewList();
 
     document.getElementById('reviewArea').classList.remove('hidden');
     document.getElementById('reviewArea').scrollIntoView({ behavior: 'smooth' });
@@ -1481,20 +1715,28 @@ async function showReview() {
     });
 
     duplicateRecords = duplicates;
+    reviewDuplicates = {};
+    duplicates.forEach(d => { reviewDuplicates[memberKey(d)] = d; });
 
-    if (duplicates.length > 0) {
+    const blocked = renderReviewList();
+
+    if (blocked) {
       showStatus(
         'duplicateStatus',
-        'Warning: Existing records were found for:\n' +
-        duplicates.join('\n') +
-        '\n\nPlease check before saving. You can still save if this is intentional.',
+        'A member with 0 hours has no existing record to remove. Go back and fix the hours.',
         'error'
       );
+    } else if (duplicates.length > 0) {
+      showStatus(
+        'duplicateStatus',
+        'Existing records were found for ' + duplicates.length +
+        ' member(s). Choose what to do with each one below.'
+      );
     } else {
-      showStatus('duplicateStatus', 'No duplicate records found.', 'success');
+      showStatus('duplicateStatus', 'No existing records found for this date.', 'success');
     }
 
-    document.getElementById('saveButton').disabled = false;
+    document.getElementById('saveButton').disabled = blocked;
 
   } catch (error) {
     showStatus('studentStatus', error.message, 'error');
@@ -1507,13 +1749,6 @@ function backToEntry() {
 }
 
 async function saveRecords() {
-  if (duplicateRecords.length > 0) {
-    const proceed = confirm(
-      'Duplicate records have been found. Do you want to save anyway?'
-    );
-    if (!proceed) return;
-  }
-
   const button = document.getElementById('saveButton');
   button.disabled = true;
 
@@ -1521,7 +1756,10 @@ async function saveRecords() {
     const trainingDate = parseTrainingDate(getTrainingDateValue());
     const result = await apiRequest('/api/save-training-batch', 'POST', {
       date: trainingDate,
-      entries: selectedEntries,
+      entries: selectedEntries.map(e => ({
+        ...e,
+        mode: reviewDuplicates[memberKey(e)] ? (reviewModes[memberKey(e)] || 'replace') : 'add'
+      })),
       recordedBy: selectedRecorder,
       notes: selectedNotes
     });
@@ -1537,7 +1775,7 @@ async function saveRecords() {
 
 document.getElementById('groupSelect').addEventListener('change', () => {
   defaultForGroup();
-  renderStudents();
+  renderStudents(true);
   if (!document.getElementById('addMemberBox').classList.contains('hidden')) {
     syncNewGroupFromTraining();
   }
@@ -1562,6 +1800,10 @@ document.getElementById('defaultHours').addEventListener('change', () => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeProfile();
+});
+
+['memberSearch', 'statusFilter', 'hideInactive'].forEach(id => {
+  document.getElementById(id).addEventListener(id === 'memberSearch' ? 'input' : 'change', () => renderStudents());
 });
 
 setDefaultGrade();
