@@ -331,7 +331,8 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
           <label for="newGradingDate">Last Grading Date (optional)</label>
           <input type="date" id="newGradingDate">
           <div class="small" style="margin-top:5px">
-            Used for "days since last grading". Leave blank if unknown.
+            Used for "days since last grading" and school-term requirements.
+            For a new member, enter the date they joined.
           </div>
         </div>
 
@@ -1025,8 +1026,28 @@ function renderProfile(p) {
   const training = describeRequirement(p.trainingRequirement, p.requiredTraining, '');
   body.appendChild(profileRow('Training requirement', training.text, training.state));
 
-  const days = describeRequirement(p.daysRequirement, p.requiredDays, 'days');
-  body.appendChild(profileRow('Time since last grading', days.text, days.state));
+  // Some grades need school terms instead of a number of days
+  const termsRequired = String(p.requiredTerms || '').trim();
+  const requiredText = termsRequired
+    ? termsRequired + (Number(termsRequired) === 1 ? ' term' : ' terms')
+    : p.requiredDays;
+
+  const days = describeRequirement(p.daysRequirement, requiredText, 'days');
+  body.appendChild(profileRow(
+    termsRequired ? 'School terms required' : 'Time since last grading',
+    days.text,
+    days.state
+  ));
+
+  if (termsRequired) {
+    const remaining = parseRemaining(p.daysRequirement);
+    if (!remaining.met && remaining.remaining !== null) {
+      const [ty, tm, td] = localDate().split('-').map(Number);
+      const eligible = new Date(Date.UTC(ty, tm - 1, td + remaining.remaining))
+        .toISOString().slice(0, 10);
+      body.appendChild(profileRow('Eligible from', formatDisplayDate(eligible)));
+    }
+  }
 
   if (p.notes) body.appendChild(profileRow('Notes', p.notes));
 
@@ -1357,6 +1378,29 @@ async function loadExportInfo() {
   }
 }
 
+// Days requirement for the Excel file: also shows when it will be met
+// and how many school terms the grade needs.
+function exportDaysText(member) {
+  const base = describeRequirement(member.daysRequirement, '', 'days').text;
+  if (base === '—') return null;
+
+  let text = base;
+  const terms = String(member.requiredTerms || '').trim();
+
+  if (terms) {
+    const remaining = parseRemaining(member.daysRequirement);
+    if (!remaining.met && remaining.remaining !== null) {
+      const [y, m, d] = localDate().split('-').map(Number);
+      const eligible = new Date(Date.UTC(y, m - 1, d + remaining.remaining))
+        .toISOString().slice(0, 10);
+      text += ' · eligible from ' + formatDisplayDate(eligible);
+    }
+    text += ' (' + terms + (Number(terms) === 1 ? ' term' : ' terms') + ' required)';
+  }
+
+  return text;
+}
+
 function buildExportRows(data, includeDaily) {
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1404,7 +1448,7 @@ function buildExportRows(data, includeDaily) {
       member.hoursInPeriod,
       member.nextGrade || null,
       requirementText(member.trainingRequirement, ''),
-      requirementText(member.daysRequirement, 'days')
+      exportDaysText(member)
     ];
 
     if (includeDaily) {
