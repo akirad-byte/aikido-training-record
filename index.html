@@ -35,7 +35,7 @@ header p { margin: 7px 0 0; font-size: 13px; opacity: .85; }
 main {
   max-width: 720px;
   margin: 20px auto;
-  padding: 0 14px 40px;
+  padding: 0 14px 100px;
 }
 .panel {
   background: white;
@@ -163,6 +163,39 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .profile-section { margin: 16px 0 4px; font-weight: 700; color: var(--navy); }
 .recent-row { padding: 7px 0; border-bottom: 1px solid #e8ecf1; font-size: 14px; }
 .student-name.clickable { cursor: pointer; }
+.tabs {
+  display: flex;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--light);
+  padding: 8px 0 10px;
+  margin-bottom: 6px;
+}
+.tab { flex: 1; background: #e7edf4; color: var(--navy); padding: 12px 8px; }
+.tab.active { background: var(--navy); color: #fff; }
+.tab-off { display: none !important; }
+.sticky-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -2px 10px #0000001a;
+}
+.sticky-bar.hidden { display: none; }
+.sticky-info { display: flex; flex-direction: column; min-width: 0; }
+.sticky-bar button { padding: 12px 22px; }
+.student.off .hours { opacity: .35; }
+.student.off .student-name { opacity: .65; }
 .status-badge {
   display: inline-block;
   padding: 1px 9px;
@@ -216,7 +249,13 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
     </div>
 
-    <section class="panel">
+    <nav class="tabs" id="tabBar">
+      <button class="tab active" data-tabbutton="training" onclick="showTab('training')">Training</button>
+      <button class="tab" data-tabbutton="grading" onclick="showTab('grading')">Grading</button>
+      <button class="tab" data-tabbutton="export" onclick="showTab('export')">Export</button>
+    </nav>
+
+    <section class="panel" data-tab="training">
       <h2>Training Details</h2>
 
       <div class="field">
@@ -257,7 +296,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <button class="secondary" onclick="applyDefaultHours()">Apply to all members</button>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-tab="training">
       <h2>Members</h2>
       <div class="small" style="margin:-8px 0 12px">Tap a member's name to see their profile.</div>
       <div class="button-row" style="margin-bottom:12px">
@@ -345,11 +384,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <div id="studentStatus" class="status hidden"></div>
     </section>
 
-    <section class="panel">
-      <button class="primary" style="width:100%" onclick="showReview()">Review Training Records</button>
-    </section>
-
-    <section class="panel hidden" id="reviewArea">
+    <section class="panel hidden" id="reviewArea" data-tab="training">
       <h2>Review Records</h2>
       <p id="reviewDate"></p>
       <p id="reviewRecorder"></p>
@@ -360,17 +395,18 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <div class="button-row" style="margin-top:15px">
         <button class="secondary" onclick="backToEntry()">Back to Edit</button>
         <button class="primary" id="saveButton" onclick="saveRecords()">Save Records</button>
+        <button class="secondary hidden" id="newSessionButton" onclick="startNewSession()">Record another session</button>
       </div>
     </section>
 
-    <section class="panel" id="promoPanel">
+    <section class="panel tab-off" id="promoPanel" data-tab="grading">
       <h2>Grading</h2>
       <div class="small" style="margin-bottom:12px">
         Promote members after a grading. Current Grade and Last Grading date are updated in the spreadsheet.
       </div>
-      <button class="secondary" id="promoToggle" onclick="toggleGrading()">Open grading promotion</button>
+      <button class="secondary" id="promoToggle" onclick="toggleGrading()" style="display:none">Open grading promotion</button>
 
-      <div id="promoBody" class="hidden" style="margin-top:16px">
+      <div id="promoBody" style="margin-top:16px">
         <div class="field">
           <label for="promoDate">Grading Date</label>
           <input type="date" id="promoDate">
@@ -434,7 +470,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
     </section>
 
-    <section class="panel" id="exportPanel">
+    <section class="panel tab-off" id="exportPanel" data-tab="export">
       <h2>Export to Excel</h2>
 
       <div class="field">
@@ -460,7 +496,7 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <div id="exportStatus" class="status hidden"></div>
     </section>
 
-    <div id="saveStatus" class="status hidden"></div>
+    <div id="saveStatus" class="status hidden" data-tab="training"></div>
   </section>
 </main>
 
@@ -480,6 +516,14 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       <button class="primary" id="promoConfirmButton" onclick="executePromotion()">Yes, change grades</button>
     </div>
   </div>
+</div>
+
+<div id="stickyBar" class="sticky-bar hidden">
+  <div class="sticky-info">
+    <strong id="stickyCount">0 selected</strong>
+    <span class="small" id="stickyHours"></span>
+  </div>
+  <button class="primary" onclick="showReview()">Review</button>
 </div>
 
 <footer>Aikido Training Record</footer>
@@ -625,6 +669,7 @@ async function handleLogin(response) {
     updateWeekday();
     renderStudents();
     populateRecorders();
+    showTab('training');
   } catch (error) {
     idToken = '';
     showStatus('loginStatus', error.message, 'error');
@@ -656,6 +701,7 @@ async function apiRequest(path, method = 'GET', data = null) {
 
 function signOut() {
   idToken = '';
+  document.getElementById('stickyBar').classList.add('hidden');
   rowState = {};
   document.getElementById('recordedBy').value = '';
   document.getElementById('promoRecorder').value = '';
@@ -783,7 +829,8 @@ function compareMembers(a, b) {
 // ---------- Member list ----------
 
 const INACTIVE_DAYS = 30;   // hide members whose last session is older than this
-const SOON_DAYS = 30;       // "Soon" = days requirement met within this many days
+const SOON_DAYS = 50;       // "Soon" = at most this many days to go ...
+const SOON_HOURS = 20;      // ... and fewer than this many training hours to go
 
 let rowState = {};          // member id -> { checked, hours }
 
@@ -817,19 +864,30 @@ function parseRemaining(value) {
   return { met: false, remaining: null };
 }
 
+// 1 day, 2 days / 1 hour, 1.5 hours / 1 term, 2 terms
+function plural(n, unit) {
+  return Number(n) === 1 ? unit : unit + 's';
+}
+
+function countText(n, unit) {
+  return n + ' ' + plural(n, unit);
+}
+
 function gradingStatus(student) {
   const training = parseRemaining(student.trainingRequirement);
   const days = parseRemaining(student.daysRequirement);
 
   if (training.met && days.met) return { key: 'eligible', label: 'Eligible' };
 
-  if (days.remaining !== null && days.remaining <= SOON_DAYS) {
+  // Soon: close on both counts (days and training hours)
+  const daysNear = days.met || (days.remaining !== null && days.remaining <= SOON_DAYS);
+  const hoursNear = training.met || (training.remaining !== null && training.remaining < SOON_HOURS);
+
+  if (daysNear && hoursNear) {
     const parts = [];
-    if (!days.met) parts.push(days.remaining + ' days');
-    if (!training.met && training.remaining !== null) {
-      parts.push('training ' + training.remaining + ' to go');
-    }
-    return { key: 'soon', label: 'Soon · ' + parts.join(' · ') };
+    if (!days.met) parts.push(countText(days.remaining, 'day'));
+    if (!training.met) parts.push(countText(training.remaining, 'hour'));
+    return { key: 'soon', label: 'Soon · ' + parts.join(' & ') + ' to go' };
   }
 
   return { key: 'none', label: '' };
@@ -879,6 +937,50 @@ function listMembers() {
   return { shown, hidden: matches.length - shown.length };
 }
 
+// ---------- Tabs and bottom bar ----------
+
+let activeTab = 'training';
+
+function showTab(tab) {
+  activeTab = tab;
+
+  document.querySelectorAll('[data-tab]').forEach(el => {
+    el.classList.toggle('tab-off', el.dataset.tab !== tab);
+  });
+
+  document.querySelectorAll('[data-tabbutton]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tabbutton === tab);
+  });
+
+  document.getElementById('stickyBar').classList.toggle('hidden', tab !== 'training');
+
+  if (tab === 'grading') {
+    if (!document.getElementById('promoDate').value) {
+      document.getElementById('promoDate').value = localDate();
+    }
+    populateRecorders();
+    renderPromoList();
+  }
+
+  window.scrollTo(0, 0);
+}
+
+// Number of members ticked and their total hours, shown in the bottom bar
+function updateStickyBar() {
+  const ticked = groupMembers().filter(s => rowState[s.id] && rowState[s.id].checked);
+
+  let total = 0;
+  ticked.forEach(s => {
+    const hours = Number(rowState[s.id].hours);
+    if (Number.isFinite(hours)) total += hours;
+  });
+  total = Math.round(total * 100) / 100;
+
+  document.getElementById('stickyCount').textContent = ticked.length + ' selected';
+  document.getElementById('stickyHours').textContent =
+    ticked.length ? countText(total, 'hour') + ' in total' : 'Tick the members who trained';
+}
+
 function updateMemberCount(listed, hidden) {
   const all = groupMembers();
   const selected = all.filter(s => rowState[s.id] && rowState[s.id].checked).length;
@@ -889,6 +991,7 @@ function updateMemberCount(listed, hidden) {
   }
 
   document.getElementById('memberCount').textContent = text;
+  updateStickyBar();
 }
 
 function renderStudents(reset = false) {
@@ -913,6 +1016,7 @@ function renderStudents(reset = false) {
 
     const row = document.createElement('div');
     row.className = 'student';
+    row.classList.toggle('off', !state.checked);
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -921,6 +1025,7 @@ function renderStudents(reset = false) {
     checkbox.dataset.id = student.id;
     checkbox.addEventListener('change', () => {
       state.checked = checkbox.checked;
+      row.classList.toggle('off', !checkbox.checked);
       updateMemberCount(shown.length, hidden);
     });
 
@@ -976,7 +1081,7 @@ function renderStudents(reset = false) {
     hours.className = 'hours';
     hours.dataset.id = student.id;
     hours.setAttribute('aria-label', 'Training hours for ' + student.firstName);
-    hours.addEventListener('input', () => { state.hours = hours.value; });
+    hours.addEventListener('input', () => { state.hours = hours.value; updateStickyBar(); });
 
     row.append(checkbox, name, hours);
     container.appendChild(row);
@@ -1030,14 +1135,17 @@ function describeRequirement(value, required, unit) {
   } else {
     const m = v.match(/^\(\s*(\d+(?:\.\d+)?)\s*\)$/);
     if (m) {
-      text = m[1] + (unit ? ' ' + unit : '') + ' to go';
+      text = m[1] + (unit ? ' ' + plural(m[1], unit) : '') + ' to go';
       state = 'pending';
     } else if (v) {
       text = v;
     }
   }
 
-  if (required) text += ' (required: ' + required + ')';
+  if (required) {
+    const isNumber = /^\d+(?:\.\d+)?$/.test(String(required).trim());
+    text += ' (required: ' + required + (isNumber && unit ? ' ' + plural(required, unit) : '') + ')';
+  }
   return { text, state };
 }
 
@@ -1089,12 +1197,12 @@ function renderProfile(p) {
   body.appendChild(profileRow('Last grading date', p.lastGrading));
   body.appendChild(profileRow(
     'Days since last grading',
-    p.daysSinceGrading === '' ? '' : p.daysSinceGrading + ' days'
+    p.daysSinceGrading === '' ? '' : countText(p.daysSinceGrading, 'day')
   ));
 
   body.appendChild(profileRow(
-    'Total training hours',
-    p.totalHours === '' ? '' : p.totalHours
+    'Training hours since last grading',
+    p.totalHours === '' ? '' : countText(p.totalHours, 'hour')
   ));
 
   const next = document.createElement('div');
@@ -1104,7 +1212,7 @@ function renderProfile(p) {
 
   body.appendChild(profileRow('Next grade', p.nextGrade));
 
-  const training = describeRequirement(p.trainingRequirement, p.requiredTraining, '');
+  const training = describeRequirement(p.trainingRequirement, p.requiredTraining, 'hour');
   body.appendChild(profileRow('Training requirement', training.text, training.state));
 
   // Some grades need school terms instead of a number of days
@@ -1113,7 +1221,7 @@ function renderProfile(p) {
     ? termsRequired + (Number(termsRequired) === 1 ? ' term' : ' terms')
     : p.requiredDays;
 
-  const days = describeRequirement(p.daysRequirement, requiredText, 'days');
+  const days = describeRequirement(p.daysRequirement, requiredText, 'day');
   body.appendChild(profileRow(
     termsRequired ? 'School terms required' : 'Time since last grading',
     days.text,
@@ -1147,7 +1255,7 @@ function renderProfile(p) {
       const line = document.createElement('div');
       line.className = 'recent-row';
       line.textContent =
-        r.date + ' · ' + r.hours + ' h' +
+        r.date + ' · ' + countText(r.hours, 'hour') +
         (r.recordedBy ? ' · ' + r.recordedBy : '') +
         (r.note ? ' · ' + r.note : '');
       body.appendChild(line);
@@ -1437,7 +1545,7 @@ function openPromoConfirm() {
   const note = document.createElement('p');
   note.className = 'small';
   note.textContent =
-    'This changes Current Grade and Last Grading date in the spreadsheet. A history line is added to Grading Records.';
+    'This changes Current Grade and Last Grading date in the spreadsheet. Training hours count from this date, so the outside hours are reset to 0. A history line is added to Grading Records.';
   body.appendChild(note);
 
   document.getElementById('promoConfirmOverlay').classList.remove('hidden');
@@ -1802,7 +1910,7 @@ async function loadExportInfo() {
 // Days requirement for the Excel file: also shows when it will be met
 // and how many school terms the grade needs.
 function exportDaysText(member) {
-  const base = describeRequirement(member.daysRequirement, '', 'days').text;
+  const base = describeRequirement(member.daysRequirement, '', 'day').text;
   if (base === '—') return null;
 
   let text = base;
@@ -1831,7 +1939,7 @@ function buildExportRows(data, includeDaily) {
     'Group',
     'Last Grading Date',
     'Days Since Last Grading',
-    'Total Training Hours',
+    'Training Hours since Last Grading',
     'Hours in Selected Period',
     'Next Grade',
     'Requirement of Training Days',
@@ -1868,7 +1976,7 @@ function buildExportRows(data, includeDaily) {
       asNumber(member.totalHours),
       member.hoursInPeriod,
       member.nextGrade || null,
-      requirementText(member.trainingRequirement, ''),
+      requirementText(member.trainingRequirement, 'hour'),
       exportDaysText(member)
     ];
 
@@ -1879,7 +1987,7 @@ function buildExportRows(data, includeDaily) {
     return row;
   });
 
-  const widths = [24, 18, 16, 16, 13, 13, 14, 18, 20, 18];
+  const widths = [24, 18, 16, 16, 13, 18, 14, 18, 20, 18];
   if (includeDaily) data.dates.forEach(() => widths.push(12));
 
   return { rows: [header, ...rows], widths };
@@ -2063,7 +2171,7 @@ function renderReviewList() {
     name.textContent = entry.firstName + ' ' + entry.surname;
 
     const hours = document.createElement('strong');
-    hours.textContent = entry.hours === 0 ? 'Remove record' : entry.hours + ' hours';
+    hours.textContent = entry.hours === 0 ? 'Remove record' : countText(entry.hours, 'hour');
 
     row.append(name, hours);
 
@@ -2073,20 +2181,20 @@ function renderReviewList() {
 
       const info = document.createElement('div');
       info.className = 'small';
-      info.textContent = 'Already recorded on this date: ' + existing.hours + ' h' +
+      info.textContent = 'Already recorded on this date: ' + countText(existing.hours, 'hour') +
         (existing.count > 1 ? ' (' + existing.count + ' records)' : '');
 
       const select = document.createElement('select');
       select.appendChild(new Option(
         entry.hours === 0
           ? 'Remove the existing record'
-          : 'Replace the existing record with ' + entry.hours + ' h',
+          : 'Replace the existing record with ' + countText(entry.hours, 'hour'),
         'replace'
       ));
       if (entry.hours > 0) {
         select.appendChild(new Option(
           'Add as another session (total ' +
-            (Math.round((existing.hours + entry.hours) * 100) / 100) + ' h)',
+            countText(Math.round((existing.hours + entry.hours) * 100) / 100, 'hour') + ')',
           'add'
         ));
       }
@@ -2219,6 +2327,28 @@ function backToEntry() {
   document.getElementById('studentList').scrollIntoView({ behavior: 'smooth' });
 }
 
+// Clear the finished record and get the list ready for the next one
+async function startNewSession() {
+  document.getElementById('reviewArea').classList.add('hidden');
+  document.getElementById('newSessionButton').classList.add('hidden');
+  document.getElementById('saveButton').textContent = 'Save Records';
+  document.getElementById('saveButton').disabled = false;
+  hideStatus('saveStatus');
+  document.getElementById('sessionNotes').value = '';
+  document.getElementById('trainingDate').value = localDate();
+  updateWeekday();
+
+  try {
+    students = await apiRequest('/api/students');
+  } catch (error) {
+    // keep the list we already have
+  }
+
+  renderStudents(true);
+  populateRecorders();
+  window.scrollTo(0, 0);
+}
+
 async function saveRecords() {
   const button = document.getElementById('saveButton');
   button.disabled = true;
@@ -2237,6 +2367,7 @@ async function saveRecords() {
 
     showStatus('saveStatus', result.message, 'success');
     button.textContent = 'Saved';
+    document.getElementById('newSessionButton').classList.remove('hidden');
 
   } catch (error) {
     showStatus('saveStatus', error.message, 'error');
