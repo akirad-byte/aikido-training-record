@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#142d4e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aikido Record">
 <title>Aikido Training Record</title>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -194,6 +199,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .sticky-bar.hidden { display: none; }
 .sticky-info { display: flex; flex-direction: column; min-width: 0; }
 .sticky-bar button { padding: 12px 22px; }
+.status-badge.hidden { display: none; }
+.pending-item { padding: 8px 0; border-bottom: 1px solid #e8ecf1; font-size: 14px; }
+.pending-item:last-child { border-bottom: 0; }
 .student.off .hours { opacity: .35; }
 .student.off .student-name { opacity: .65; }
 .status-badge {
@@ -244,14 +252,25 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
   <section id="appArea" class="hidden">
     <div class="panel">
       <div class="small" id="signedInAs"></div>
+      <span class="status-badge soon hidden" id="offlineBadge" style="margin-top:8px">Offline</span>
       <div class="button-row" style="margin-top:10px">
         <button class="secondary" onclick="signOut()">Sign out</button>
       </div>
     </div>
 
+    <section class="panel hidden" id="pendingBanner">
+      <strong id="pendingTitle"></strong>
+      <div id="pendingList" style="margin-top:6px"></div>
+      <div class="small" id="pendingMessage" style="margin-top:6px"></div>
+      <div class="button-row" style="margin-top:10px">
+        <button class="secondary" onclick="flushQueue(true)">Send now</button>
+      </div>
+    </section>
+
     <nav class="tabs" id="tabBar">
       <button class="tab active" data-tabbutton="training" onclick="showTab('training')">Training</button>
       <button class="tab" data-tabbutton="grading" onclick="showTab('grading')">Grading</button>
+      <button class="tab" data-tabbutton="edit" onclick="showTab('edit')">Edit</button>
       <button class="tab" data-tabbutton="export" onclick="showTab('export')">Export</button>
     </nav>
 
@@ -470,6 +489,26 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
       </div>
     </section>
 
+    <section class="panel tab-off" id="editPanel" data-tab="edit">
+      <h2>Edit Members</h2>
+      <div class="small" style="margin:-8px 0 12px">Tap a member to edit their details.</div>
+
+      <div class="filter-row">
+        <input type="search" id="editSearch" placeholder="Search members by name" autocomplete="off">
+      </div>
+
+      <div class="filter-row">
+        <label style="font-weight:normal;font-size:14px">
+          <input type="checkbox" id="editShowInactive" style="width:auto;margin-right:8px">
+          Show inactive members
+        </label>
+      </div>
+
+      <div class="small" id="editCount" style="margin-bottom:10px"></div>
+      <div id="editList"></div>
+      <div id="editListStatus" class="status hidden"></div>
+    </section>
+
     <section class="panel tab-off" id="exportPanel" data-tab="export">
       <h2>Export to Excel</h2>
 
@@ -489,6 +528,13 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
         <label style="font-weight:normal">
           <input type="checkbox" id="exportDaily" style="width:auto;margin-right:8px">
           Include daily training hours
+        </label>
+      </div>
+
+      <div class="field">
+        <label style="font-weight:normal">
+          <input type="checkbox" id="exportInactive" style="width:auto;margin-right:8px">
+          Include inactive members
         </label>
       </div>
 
@@ -524,6 +570,79 @@ footer { text-align: center; color: #758195; font-size: 12px; padding: 10px; }
     <span class="small" id="stickyHours"></span>
   </div>
   <button class="primary" onclick="showReview()">Review</button>
+</div>
+
+<div id="editOverlay" class="overlay hidden">
+  <div class="profile-card">
+    <h2 id="editTitle">Edit Member</h2>
+
+    <div class="field">
+      <label for="editFirst">First Name</label>
+      <input type="text" id="editFirst" maxlength="50" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label for="editSurname">Surname</label>
+      <input type="text" id="editSurname" maxlength="50" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label for="editGrade">Current Grade</label>
+      <select id="editGrade"></select>
+      <div class="small" style="margin-top:5px">
+        To promote a member after a grading, use the Grading tab so the history is recorded there.
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="editGroup">Group</label>
+      <select id="editGroup">
+        <option value="Adult">Adult</option>
+        <option value="Junior">Junior</option>
+        <option value="Little Samurai">Little Samurai</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="editAttendance">Attendance Type</label>
+      <select id="editAttendance">
+        <option value="Regular">Regular</option>
+        <option value="Casual">Casual</option>
+        <option value="Inactive">Inactive (left the dojo)</option>
+      </select>
+      <div class="small" style="margin-top:5px">
+        Inactive members are hidden from the lists and the Excel file. Their records are kept.
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="editDate">Last Grading Date</label>
+      <input type="date" id="editDate">
+      <div class="small" style="margin-top:5px">For a member who has not graded yet, this is the join date.</div>
+    </div>
+
+    <div class="field">
+      <label for="editOutside">Outside Training Hours</label>
+      <input type="number" id="editOutside" min="0" step="0.5" placeholder="e.g. 20">
+      <div class="small" style="margin-top:5px">
+        Hours trained outside this spreadsheet since the last grading (counted in Training Hours).
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="editRecorder">Changed by</label>
+      <select id="editRecorder">
+        <option value="">Select who is making this change</option>
+      </select>
+    </div>
+
+    <div id="editStatus" class="status hidden"></div>
+
+    <div class="button-row">
+      <button class="secondary" onclick="closeEdit()">Cancel</button>
+      <button class="primary" id="editSaveButton" onclick="saveEdit()">Save changes</button>
+    </div>
+  </div>
 </div>
 
 <footer>Aikido Training Record</footer>
@@ -670,13 +789,16 @@ async function handleLogin(response) {
     renderStudents();
     populateRecorders();
     showTab('training');
+    updateOnlineBadge();
+    updatePendingBanner();
+    flushQueue();
   } catch (error) {
     idToken = '';
     showStatus('loginStatus', error.message, 'error');
   }
 }
 
-async function apiRequest(path, method = 'GET', data = null) {
+async function apiRequest(path, method = 'GET', data = null, timeoutMs = 0) {
   const options = {
     method,
     headers: {
@@ -689,11 +811,46 @@ async function apiRequest(path, method = 'GET', data = null) {
     options.body = JSON.stringify(data);
   }
 
-  const response = await fetch(API_URL + path, options);
-  const result = await response.json();
+  let response;
+  let timer = null;
+
+  try {
+    if (timeoutMs) {
+      const controller = new AbortController();
+      timer = setTimeout(() => controller.abort(), timeoutMs);
+      options.signal = controller.signal;
+    }
+    response = await fetch(API_URL + path, options);
+  } catch (error) {
+    // No connection, or the server did not answer in time
+    const failure = new Error('No connection to the server.');
+    failure.network = true;
+    throw failure;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch (error) {
+    const failure = new Error('The server did not give a usable reply. Please try again.');
+    failure.network = true;
+    throw failure;
+  }
 
   if (!response.ok) {
-    throw new Error(result.error || 'Request failed.');
+    const failure = new Error(result.error || 'Request failed.');
+    failure.status = response.status;
+
+    // The Google sign-in lasts about an hour: ask for a new sign-in
+    if (response.status === 401 && idToken &&
+        !document.getElementById('appArea').classList.contains('hidden')) {
+      signOut();
+      showStatus('loginStatus', 'Your session has expired. Please sign in again.', 'error');
+    }
+
+    throw failure;
   }
 
   return result;
@@ -705,6 +862,7 @@ function signOut() {
   rowState = {};
   document.getElementById('recordedBy').value = '';
   document.getElementById('promoRecorder').value = '';
+  document.getElementById('editRecorder').value = '';
   promoState = {};
   students = [];
   document.getElementById('appArea').classList.add('hidden');
@@ -893,6 +1051,15 @@ function gradingStatus(student) {
   return { key: 'none', label: '' };
 }
 
+function isInactiveMember(student) {
+  return String(student.attendance || '').trim().toLowerCase() === 'inactive';
+}
+
+function attendanceLabel(student) {
+  if (isInactiveMember(student)) return 'Inactive';
+  return String(student.attendance || '').trim().toLowerCase() === 'regular' ? 'Regular' : 'Casual';
+}
+
 function isRegularMember(student) {
   return String(student.attendance || '').toLowerCase() === 'regular';
 }
@@ -900,6 +1067,7 @@ function isRegularMember(student) {
 function groupMembers() {
   const group = document.getElementById('groupSelect').value;
   return students
+    .filter(s => !isInactiveMember(s))
     .filter(s => group === 'All Students' || s.group === group)
     .sort(compareMembers);
 }
@@ -953,6 +1121,11 @@ function showTab(tab) {
   });
 
   document.getElementById('stickyBar').classList.toggle('hidden', tab !== 'training');
+
+  if (tab === 'edit') {
+    populateRecorders();
+    renderEditList();
+  }
 
   if (tab === 'grading') {
     if (!document.getElementById('promoDate').value) {
@@ -1283,6 +1456,239 @@ function isBlackBelt(grade) {
   return /^shodan$/i.test(g) || /^\d+\s*(?:st|nd|rd|th)?\s*dan$/i.test(g);
 }
 
+// ---------- Edit members ----------
+
+let editingId = null;
+
+function renderEditList() {
+  const query = document.getElementById('editSearch').value.trim().toLowerCase();
+  const list = document.getElementById('editList');
+  list.innerHTML = '';
+
+  const showInactive = document.getElementById('editShowInactive').checked;
+  const pool = students.filter(s => showInactive || !isInactiveMember(s));
+
+  const matches = pool
+    .filter(s => !query || (s.firstName + ' ' + s.surname).toLowerCase().includes(query))
+    .sort(compareMembers);
+
+  const hiddenCount = students.length - pool.length;
+  document.getElementById('editCount').textContent =
+    'Showing ' + matches.length + ' of ' + pool.length + ' members' +
+    (hiddenCount > 0 ? ' · ' + hiddenCount + ' inactive hidden' : '');
+
+  if (matches.length === 0) {
+    list.textContent = 'No members found.';
+    return;
+  }
+
+  matches.forEach(student => {
+    const row = document.createElement('div');
+    row.className = 'student';
+    row.classList.toggle('off', isInactiveMember(student));
+
+    const name = document.createElement('div');
+    name.className = 'student-name clickable';
+    name.setAttribute('role', 'button');
+    name.setAttribute('tabindex', '0');
+
+    const strong = document.createElement('strong');
+    strong.textContent = student.firstName + ' ' + student.surname;
+
+    const small = document.createElement('small');
+    small.appendChild(gradeBadgeElement(student.grade));
+
+    const groupKey = (student.group || '').toLowerCase();
+    const groupBadge = document.createElement('span');
+    groupBadge.className = 'grade-badge ' + (
+      groupKey === 'adult' ? 'grp-adult' :
+      groupKey === 'junior' ? 'grp-junior' :
+      groupKey === 'little samurai' ? 'grp-little' : 'grp-other'
+    );
+    groupBadge.textContent = student.group || 'No group';
+    small.appendChild(groupBadge);
+    small.appendChild(document.createTextNode(attendanceLabel(student)));
+
+    name.append(strong, small);
+    name.addEventListener('click', () => openEdit(student.id));
+    name.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openEdit(student.id);
+      }
+    });
+
+    const edit = document.createElement('button');
+    edit.className = 'secondary';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => openEdit(student.id));
+
+    row.append(name, edit);
+    list.appendChild(row);
+  });
+}
+
+function fillEditGradeSelect(current) {
+  const select = document.getElementById('editGrade');
+  const options = gradeOptions.slice();
+
+  Object.values(DEFAULT_GRADES).forEach(g => {
+    if (!options.includes(g)) options.push(g);
+  });
+  if (current && !options.includes(current)) options.push(current);
+
+  select.innerHTML = '';
+
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '(blank)';
+  select.appendChild(blank);
+
+  options.forEach(g => {
+    const option = document.createElement('option');
+    option.value = g;
+    option.textContent = g;
+    select.appendChild(option);
+  });
+
+  select.value = current || '';
+}
+
+function openEdit(id) {
+  const member = students.find(s => s.id === id);
+  if (!member) return;
+
+  editingId = id;
+  populateRecorders();
+
+  document.getElementById('editTitle').textContent =
+    'Edit ' + member.firstName + ' ' + member.surname;
+  document.getElementById('editFirst').value = member.firstName;
+  document.getElementById('editSurname').value = member.surname;
+  fillEditGradeSelect(member.grade);
+  document.getElementById('editGroup').value = member.group;
+  document.getElementById('editAttendance').value = attendanceLabel(member);
+  document.getElementById('editDate').value = member.lastGrading || '';
+  document.getElementById('editOutside').value = member.outsideHours === undefined ? '' : member.outsideHours;
+
+  hideStatus('editStatus');
+  document.getElementById('editOverlay').classList.remove('hidden');
+}
+
+function closeEdit() {
+  document.getElementById('editOverlay').classList.add('hidden');
+  editingId = null;
+}
+
+async function saveEdit() {
+  const member = students.find(s => s.id === editingId);
+  if (!member) return;
+
+  const outsideText = document.getElementById('editOutside').value.trim();
+  const updated = {
+    firstName: document.getElementById('editFirst').value.replace(/\s+/g, ' ').trim(),
+    surname: document.getElementById('editSurname').value.replace(/\s+/g, ' ').trim(),
+    grade: document.getElementById('editGrade').value,
+    group: document.getElementById('editGroup').value,
+    attendanceType: document.getElementById('editAttendance').value,
+    lastGrading: document.getElementById('editDate').value,
+    outsideHours: outsideText === '' ? '' : Number(outsideText)
+  };
+
+  if (!updated.firstName || !updated.surname) {
+    showStatus('editStatus', 'Please enter the first name and surname.', 'error');
+    return;
+  }
+
+  if (updated.outsideHours !== '' && (!Number.isFinite(updated.outsideHours) || updated.outsideHours < 0)) {
+    showStatus('editStatus', 'Please enter a valid number of outside training hours.', 'error');
+    return;
+  }
+
+  const recorder = document.getElementById('editRecorder').value;
+  if (!recorder) {
+    showStatus('editStatus', 'Please select who is making this change.', 'error');
+    return;
+  }
+
+  // Summary of what will change
+  const before = {
+    name: member.firstName + ' ' + member.surname,
+    grade: member.grade || '',
+    group: member.group || '',
+    attendance: attendanceLabel(member),
+    lastGrading: member.lastGrading || '',
+    outside: member.outsideHours === undefined ? '' : member.outsideHours
+  };
+
+  const lines = [];
+  const shown = v => (v === '' ? '(blank)' : v);
+
+  const newName = updated.firstName + ' ' + updated.surname;
+  if (newName !== before.name) lines.push('Name: ' + before.name + ' → ' + newName);
+  if (updated.grade !== before.grade) lines.push('Grade: ' + shown(before.grade) + ' → ' + shown(updated.grade));
+  if (updated.group !== before.group) lines.push('Group: ' + shown(before.group) + ' → ' + shown(updated.group));
+  if (updated.attendanceType !== before.attendance) lines.push('Attendance: ' + before.attendance + ' → ' + updated.attendanceType);
+  if (updated.lastGrading !== before.lastGrading) {
+    lines.push('Last grading date: ' +
+      (before.lastGrading ? formatDisplayDate(before.lastGrading) : '(blank)') + ' → ' +
+      (updated.lastGrading ? formatDisplayDate(updated.lastGrading) : '(blank)'));
+  }
+  if (updated.outsideHours !== before.outside) {
+    lines.push('Outside hours: ' + shown(before.outside) + ' → ' + shown(updated.outsideHours));
+  }
+
+  if (lines.length === 0) {
+    showStatus('editStatus', 'There are no changes to save.', 'error');
+    return;
+  }
+
+  let question = 'Save these changes?\n\n' + lines.join('\n');
+  if (newName !== before.name) {
+    question += '\n\nThe name will also be updated in Training Records and Grading Records.';
+  }
+  if (updated.attendanceType === 'Inactive' && before.attendance !== 'Inactive') {
+    question += '\n\nThis member will be hidden from the lists and the Excel file. Their records are kept.';
+  }
+  if (!confirm(question)) return;
+
+  const button = document.getElementById('editSaveButton');
+  button.disabled = true;
+  showStatus('editStatus', 'Saving...');
+
+  try {
+    const result = await apiRequest('/api/update-member', 'POST', {
+      id: member.id,
+      current: {
+        firstName: member.firstName,
+        surname: member.surname,
+        grade: member.grade || '',
+        group: member.group || '',
+        attendance: member.attendance || '',
+        lastGrading: member.lastGrading || '',
+        outsideHours: before.outside
+      },
+      updated,
+      recordedBy: recorder
+    });
+
+    students = await apiRequest('/api/students');
+    closeEdit();
+    document.getElementById('editSearch').value = '';
+
+    renderStudents();
+    renderEditList();
+    populateRecorders();
+    renderPromoList();
+
+    showStatus('editListStatus', result.message, 'success');
+  } catch (error) {
+    showStatus('editStatus', error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // ---------- Grading (promotion) ----------
 
 let promoState = {};      // member id -> true when ticked
@@ -1318,6 +1724,7 @@ function toggleGrading() {
 function promoGroupMembers() {
   const group = document.getElementById('promoGroup').value;
   return students
+    .filter(s => !isInactiveMember(s))
     .filter(s => group === 'All Students' || s.group === group)
     .sort(compareMembers);
 }
@@ -1596,9 +2003,9 @@ async function executePromotion() {
 }
 
 function populateRecorders() {
-  const eligible = students.filter(s => isRecorderGrade(s.grade)).sort(compareMembers); // highest grade first
+  const eligible = students.filter(s => isRecorderGrade(s.grade) && !isInactiveMember(s)).sort(compareMembers); // highest grade first
 
-  ['recordedBy', 'promoRecorder'].forEach(id => {
+  ['recordedBy', 'promoRecorder', 'editRecorder'].forEach(id => {
     const select = document.getElementById(id);
     const current = select.value;
 
@@ -1930,7 +2337,7 @@ function exportDaysText(member) {
   return text;
 }
 
-function buildExportRows(data, includeDaily) {
+function buildExportRows(data, includeDaily, includeInactive = false) {
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const header = [
@@ -1964,7 +2371,9 @@ function buildExportRows(data, includeDaily) {
     return text === '—' ? null : text;
   };
 
-  const members = data.members.slice().sort(compareMembers);
+  const members = data.members
+    .filter(m => includeInactive || String(m.attendance || '').trim().toLowerCase() !== 'inactive')
+    .sort(compareMembers);
 
   const rows = members.map(member => {
     const row = [
@@ -2017,7 +2426,7 @@ async function downloadExcel() {
       '/api/export?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
     );
 
-    const built = buildExportRows(data, includeDaily);
+    const built = buildExportRows(data, includeDaily, document.getElementById('exportInactive').checked);
     const bytes = buildXlsx(built.rows, 'Training Records', built.widths);
 
     const blob = new Blob([bytes], {
@@ -2288,10 +2697,18 @@ async function showReview() {
     document.getElementById('saveButton').textContent = 'Save Records';
     showStatus('duplicateStatus', 'Checking for duplicate records...');
 
-    const duplicates = await apiRequest('/api/check-duplicates', 'POST', {
-      date,
-      entries: selectedEntries
-    });
+    reviewUnchecked = false;
+    let duplicates = [];
+
+    try {
+      duplicates = await apiRequest('/api/check-duplicates', 'POST', {
+        date,
+        entries: selectedEntries
+      });
+    } catch (error) {
+      if (!error.network) throw error;
+      reviewUnchecked = true;
+    }
 
     duplicateRecords = duplicates;
     reviewDuplicates = {};
@@ -2299,7 +2716,12 @@ async function showReview() {
 
     const blocked = renderReviewList();
 
-    if (blocked) {
+    if (reviewUnchecked) {
+      showStatus(
+        'duplicateStatus',
+        'No connection, so existing records could not be checked. You can still save: the records are kept on this device and sent when you are back online. A member who already has a record that day will not be added twice.'
+      );
+    } else if (blocked) {
       showStatus(
         'duplicateStatus',
         'A member with 0 hours has no existing record to remove. Go back and fix the hours.',
@@ -2349,24 +2771,216 @@ async function startNewSession() {
   window.scrollTo(0, 0);
 }
 
+// ---------- Saving when the connection is poor ----------
+
+const QUEUE_KEY = 'aikidoPendingSaves';
+let flushing = false;
+let reviewUnchecked = false;   // true when existing records could not be checked (offline)
+
+function loadQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  } catch (error) {
+    return [];
+  }
+}
+
+function storeQueue(queue) {
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function newRequestId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+}
+
+function updateOnlineBadge() {
+  document.getElementById('offlineBadge').classList.toggle('hidden', navigator.onLine !== false);
+}
+
+function updatePendingBanner(message) {
+  const queue = loadQueue();
+  const banner = document.getElementById('pendingBanner');
+
+  document.getElementById('pendingMessage').textContent = message || '';
+
+  if (queue.length === 0 && !message) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  banner.classList.remove('hidden');
+
+  const waiting = queue.filter(i => i.status === 'pending').length;
+  const failed = queue.filter(i => i.status === 'failed').length;
+
+  const parts = [];
+  if (waiting) parts.push(waiting + (waiting === 1 ? ' save is' : ' saves are') + ' waiting to be sent');
+  if (failed) parts.push(failed + (failed === 1 ? ' save needs' : ' saves need') + ' your attention');
+  document.getElementById('pendingTitle').textContent = parts.join(' · ');
+
+  const list = document.getElementById('pendingList');
+  list.innerHTML = '';
+
+  queue.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'pending-item';
+
+    const text = document.createElement('div');
+    text.textContent = item.summary + (item.status === 'failed' ? ' — ' + item.error : '');
+    row.appendChild(text);
+
+    if (item.status === 'failed') {
+      const discard = document.createElement('button');
+      discard.className = 'danger';
+      discard.style.marginTop = '6px';
+      discard.textContent = 'Discard';
+      discard.addEventListener('click', () => {
+        if (!confirm('Discard this save? It will not be sent.')) return;
+        storeQueue(loadQueue().filter(i => i.requestId !== item.requestId));
+        updatePendingBanner();
+      });
+      row.appendChild(discard);
+    }
+
+    list.appendChild(row);
+  });
+}
+
+function enqueueSave(payload, summary) {
+  const queue = loadQueue();
+  queue.push({
+    requestId: payload.requestId,
+    summary,
+    payload,
+    status: 'pending',
+    error: '',
+    createdAt: Date.now()
+  });
+  const stored = storeQueue(queue);
+  updatePendingBanner();
+  return stored;
+}
+
+// Send the saves that are waiting, oldest first. Safe to call at any time.
+async function flushQueue(manual = false) {
+  if (flushing || !idToken) return;
+
+  let queue = loadQueue();
+  if (!queue.some(i => i.status === 'pending')) {
+    if (manual) updatePendingBanner('Nothing is waiting to be sent.');
+    return;
+  }
+
+  if (navigator.onLine === false) {
+    if (manual) updatePendingBanner('Still offline. The saves will be sent when the connection is back.');
+    return;
+  }
+
+  flushing = true;
+  let sent = 0;
+
+  try {
+    for (const item of queue) {
+      if (item.status !== 'pending') continue;
+
+      try {
+        await apiRequest('/api/save-training-batch', 'POST', item.payload, 20000);
+        item.status = 'sent';
+        sent++;
+      } catch (error) {
+        if (error.network || error.status === 401) break;   // try again later
+        item.status = 'failed';
+        item.error = error.message;
+      }
+
+      storeQueue(queue.filter(i => i.status !== 'sent'));
+    }
+  } finally {
+    queue = queue.filter(i => i.status !== 'sent');
+    storeQueue(queue);
+    flushing = false;
+  }
+
+  if (sent > 0) {
+    try {
+      students = await apiRequest('/api/students');
+      renderStudents();
+      populateRecorders();
+    } catch (error) {
+      // the lists will refresh next time
+    }
+    updatePendingBanner(sent + (sent === 1 ? ' saved record was sent.' : ' saved records were sent.'));
+    setTimeout(() => updatePendingBanner(), 6000);
+  } else {
+    updatePendingBanner(manual && queue.some(i => i.status === 'pending')
+      ? 'Could not send yet. It will be tried again automatically.' : '');
+  }
+}
+
+window.addEventListener('online', () => {
+  updateOnlineBadge();
+  flushQueue();
+});
+window.addEventListener('offline', updateOnlineBadge);
+setInterval(() => flushQueue(), 30000);
+
 async function saveRecords() {
   const button = document.getElementById('saveButton');
   button.disabled = true;
 
   try {
     const trainingDate = parseTrainingDate(getTrainingDateValue());
-    const result = await apiRequest('/api/save-training-batch', 'POST', {
+
+    const payload = {
       date: trainingDate,
       entries: selectedEntries.map(e => ({
         ...e,
         mode: reviewDuplicates[memberKey(e)] ? (reviewModes[memberKey(e)] || 'replace') : 'add'
       })),
       recordedBy: selectedRecorder,
-      notes: selectedNotes
-    });
+      notes: selectedNotes,
+      requestId: newRequestId(),
+      safeAdd: reviewUnchecked
+    };
 
-    showStatus('saveStatus', result.message, 'success');
-    button.textContent = 'Saved';
+    const summary = formatTrainingDate(trainingDate) + ' · ' +
+      payload.entries.length + (payload.entries.length === 1 ? ' member' : ' members');
+
+    let result;
+
+    if (navigator.onLine === false) {
+      result = null;
+    } else {
+      try {
+        result = await apiRequest('/api/save-training-batch', 'POST', payload, 20000);
+      } catch (error) {
+        if (!error.network) throw error;
+        result = null;
+      }
+    }
+
+    if (result) {
+      showStatus('saveStatus', result.message, 'success');
+      button.textContent = 'Saved';
+    } else {
+      // No connection: keep it on this device and send it later
+      if (!enqueueSave(payload, summary)) {
+        throw new Error('The records could not be saved on this device. Please try again when you are online.');
+      }
+      showStatus(
+        'saveStatus',
+        'No connection. The records are saved on this device and will be sent automatically when you are back online.',
+        'success'
+      );
+      button.textContent = 'Saved on this device';
+    }
+
     document.getElementById('newSessionButton').classList.remove('hidden');
 
   } catch (error) {
@@ -2409,6 +3023,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeProfile();
 });
 
+document.getElementById('editSearch').addEventListener('input', () => renderEditList());
+document.getElementById('editShowInactive').addEventListener('change', () => renderEditList());
+
 ['promoGroup', 'promoShow'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => renderPromoList());
 });
@@ -2416,6 +3033,12 @@ document.addEventListener('keydown', e => {
 ['memberSearch', 'statusFilter', 'hideInactive'].forEach(id => {
   document.getElementById(id).addEventListener(id === 'memberSearch' ? 'input' : 'change', () => renderStudents());
 });
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 setDefaultGrade();
 initialiseLogin();
